@@ -2,12 +2,13 @@
 """Book Shelf server: serves the app and stores each account's library.
 
 Run:  python3 server.py [port]      (default: $PORT, else 8765)
-Accounts and libraries live in bookshelf.db (SQLite) inside $DATA_DIR (default: ./data).
-On a host, point DATA_DIR at a persistent disk or every redeploy starts with no accounts.
+Accounts and libraries live in bookshelf.db (SQLite) inside $DATA_DIR (default: ./data),
+or, when DATABASE_URL is set to a Neon Postgres connection string, in that database instead.
+On a host, use DATABASE_URL or point DATA_DIR at a persistent disk, or every restart loses all accounts.
 Set TRUST_PROXY=1 when running behind the host's HTTPS proxy, so login limits see real visitor addresses.
 Needs only the Python standard library.
 """
-import functools, hashlib, hmac, json, os, re, secrets, socket, sqlite3, sys, time
+import functools, hashlib, hmac, json, os, re, secrets, socket, sqlite3, sys, time, urllib.error, urllib.parse, urllib.request
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -20,13 +21,104 @@ USERNAME = re.compile(r'^[a-z0-9_.+@-]{3,80}$')   # a plain name or an email add
 FAILS = {}                           # (ip, username) -> recent failed login times
 
 
+DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
+
+
+class Duplicate(Exception):
+    """A row with that unique value already exists."""
+
+
+class NeonResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
+
+
+class NeonConn:
+    """Neon Postgres over its HTTPS SQL endpoint, so the server still needs no database driver.
+    Mirrors the few sqlite3 calls the handler makes: execute(...).fetchone(), `with con:` and close()."""
+    endpoint = None                    # found on first use, then shared
+
+    def __init__(self, url):
+        self.url = url
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def close(self):
+        pass
+
+    def _post(self, endpoint, body):
+        req = urllib.request.Request(endpoint, data=body, method='POST', headers={
+            'Content-Type': 'application/json', 'Neon-Connection-String': self.url,
+            'Neon-Raw-Text-Output': 'true', 'Neon-Array-Mode': 'true'})
+        try:
+            with urllib.request.urlopen(req, timeout=25) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            try:
+                err = json.loads(e.read() or b'{}')
+            except ValueError:
+                err = {}
+            if err.get('code') == '23505':
+                raise Duplicate(err.get('message', 'duplicate'))
+            raise RuntimeError(f"database error {e.code}: {err.get('message', e.reason)}")
+
+    def execute(self, sql, params=()):
+        n = iter(range(1, 1000))
+        query = re.sub(r'\?', lambda m: f'${next(n)}', sql)
+        enc = lambda v: None if v is None else ('\\x' + bytes(v).hex()) if isinstance(v, (bytes, bytearray, memoryview)) else str(v)
+        body = json.dumps({'query': query, 'params': [enc(v) for v in params]}).encode()
+        host = urllib.parse.urlparse(self.url).hostname or ''
+        tries = [NeonConn.endpoint] if NeonConn.endpoint else [
+            os.environ.get('NEON_HTTP_ENDPOINT') or 'https://' + re.sub(r'^[^.]+\.', 'api.', host) + '/sql',
+            'https://' + host + '/sql']
+        last = None
+        for ep in tries:
+            try:
+                res = self._post(ep, body)
+                NeonConn.endpoint = ep
+                return NeonResult(res.get('rows') or [])
+            except (Duplicate, RuntimeError):
+                raise
+            except OSError as e:          # could not reach that address: try the next form
+                last = e
+        raise RuntimeError(f'could not reach the database: {last}')
+
+
+def blob(v):
+    """Bytes from either backend (Neon sends bytea as \\x-prefixed hex text)."""
+    if isinstance(v, str):
+        return bytes.fromhex(v[2:]) if v.startswith('\\x') else v.encode()
+    return bytes(v)
+
+
 def db():
+    if DATABASE_URL:
+        return NeonConn(DATABASE_URL)
     con = sqlite3.connect(DB, timeout=10)
     con.execute('PRAGMA foreign_keys=ON')
     return con
 
 
 def init():
+    if DATABASE_URL:
+        con = NeonConn(DATABASE_URL)
+        for stmt in ('CREATE TABLE IF NOT EXISTS users(id BIGSERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, '
+                     'salt BYTEA NOT NULL, hash BYTEA NOT NULL, created DOUBLE PRECISION NOT NULL)',
+                     'CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY, '
+                     'user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires DOUBLE PRECISION NOT NULL)',
+                     'CREATE TABLE IF NOT EXISTS libraries(user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, '
+                     'data TEXT NOT NULL, updated DOUBLE PRECISION NOT NULL)',
+                     'CREATE TABLE IF NOT EXISTS shares(id TEXT PRIMARY KEY, '
+                     'user_id BIGINT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE, created DOUBLE PRECISION NOT NULL)'):
+            con.execute(stmt)
+        return
     os.makedirs(os.path.dirname(DB), exist_ok=True)
     with db() as con:
         con.executescript('''
@@ -108,7 +200,7 @@ class Handler(SimpleHTTPRequestHandler):
             return None
         row = con.execute('SELECT user_id FROM sessions WHERE token_hash=? AND expires>?',
                           (token_hash(auth[7:]), time.time())).fetchone()
-        return row[0] if row else None
+        return int(row[0]) if row else None
 
     def new_session(self, con, uid):
         token = secrets.token_urlsafe(32)
@@ -193,9 +285,9 @@ class Handler(SimpleHTTPRequestHandler):
         if mode == 'signup':
             salt = secrets.token_bytes(16)
             try:
-                uid = con.execute('INSERT INTO users(username,salt,hash,created) VALUES(?,?,?,?)',
-                                  (username, salt, pw_hash(password, salt), time.time())).lastrowid
-            except sqlite3.IntegrityError:
+                uid = int(con.execute('INSERT INTO users(username,salt,hash,created) VALUES(?,?,?,?) RETURNING id',
+                                      (username, salt, pw_hash(password, salt), time.time())).fetchone()[0])
+            except (sqlite3.IntegrityError, Duplicate):
                 return self.send_json(409, {'error': 'That username is taken'})
             return self.send_json(200, {'token': self.new_session(con, uid), 'username': username, 'data': None})
         # login: at most 8 wrong passwords per address and username in 5 minutes
@@ -205,7 +297,7 @@ class Handler(SimpleHTTPRequestHandler):
         if len(recent) >= 8:
             return self.send_json(429, {'error': 'Too many attempts. Try again in a few minutes'})
         row = con.execute('SELECT id,salt,hash FROM users WHERE username=?', (username,)).fetchone()
-        uid, salt, stored = row if row else (None, b'\0' * 16, b'')
+        uid, salt, stored = (int(row[0]), blob(row[1]), blob(row[2])) if row else (None, b'\0' * 16, b'')
         if not hmac.compare_digest(pw_hash(password, salt), stored) or uid is None:
             FAILS[key] = recent + [time.time()]
             return self.send_json(401, {'error': 'Wrong username or password'})
@@ -220,6 +312,11 @@ class Handler(SimpleHTTPRequestHandler):
 
 if __name__ == '__main__':
     port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get('PORT') or 8765)
-    init()
-    print(f'Book Shelf running on port {port} (data in {os.path.dirname(DB)})', flush=True)
+    try:
+        init()
+    except Exception as e:                 # stop here, loudly, rather than run without the accounts database
+        print(f'Book Shelf could not open its database: {e}', file=sys.stderr, flush=True)
+        sys.exit(1)
+    where = 'Neon Postgres (DATABASE_URL)' if DATABASE_URL else os.path.dirname(DB)
+    print(f'Book Shelf running on port {port} (accounts in {where})', flush=True)
     ThreadingHTTPServer(('0.0.0.0', port), functools.partial(Handler, directory=ROOT)).serve_forever()

@@ -24,7 +24,8 @@ A static host (GitHub Pages, Netlify, Vercel) can show the app, but only in
 | Setting | What it does |
 |---|---|
 | `PORT` | Port to listen on. Most hosts set this for you. Default 8765. |
-| `DATA_DIR` | Folder for `bookshelf.db`. Put it on a persistent disk. Default `./data`. |
+| `DATABASE_URL` | A Neon Postgres connection string. When set, accounts live in Neon and survive restarts. |
+| `DATA_DIR` | Folder for `bookshelf.db` when `DATABASE_URL` is not set. Put it on a persistent disk. Default `./data`. |
 | `TRUST_PROXY=1` | Set when running behind the host's HTTPS proxy. |
 
 **Keep the database on a persistent disk.** If `DATA_DIR` is on the host's normal file system,
@@ -33,7 +34,16 @@ every redeploy or restart wipes all accounts.
 **Use HTTPS.** Installing on a phone and offline use only work over `https://`. The hosts
 below give you HTTPS automatically.
 
-### Render (Docker)
+### Free and permanent: Render free web service + Neon
+
+1. Create a free project at neon.tech and copy its connection string (it starts with `postgresql://`).
+2. On Render, create a **Web Service** from the repository (Docker, Free instance).
+3. Add the environment variables `DATABASE_URL` (the Neon string) and `TRUST_PROXY=1`.
+
+The server creates its tables on first start. If the string is wrong, the deploy stops with
+"could not open its database" in the logs instead of running without accounts.
+
+### Render (Docker) with a disk
 
 1. Put this folder in a GitHub repository. `data/` is in `.gitignore`, so your local accounts stay out.
 2. In Render, choose **New → Blueprint** and pick the repository. `render.yaml` creates a web
