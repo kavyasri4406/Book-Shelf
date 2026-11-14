@@ -1,6 +1,6 @@
 {
-  "name": "Bookshelf Tracker",
-  "short_name": "Bookshelf",
+  "name": "Book Shelf",
+  "short_name": "Book Shelf",
   "description": "Track your reading and decorate your bookshelf.",
   "start_url": "./index.html",
   "scope": "./",

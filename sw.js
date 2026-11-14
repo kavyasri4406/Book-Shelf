@@ -1,4 +1,4 @@
-// Bookshelf Tracker service worker: keeps the app and its pictures available offline.
+// Book Shelf service worker: keeps the app and its pictures available offline.
 // The page is fetched fresh when online; shelf pictures come from the cache once seen. The /api/ calls are never cached.
 const CACHE = 'bookshelf-v1';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'assets/icons/icon-192.png', 'assets/icons/icon-512.png'];

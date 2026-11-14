@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bookshelf Tracker server: serves the app and stores each account's library.
+"""Book Shelf server: serves the app and stores each account's library.
 
 Run:  python3 server.py [port]      (default: $PORT, else 8765)
 Accounts and libraries live in bookshelf.db (SQLite) inside $DATA_DIR (default: ./data).
@@ -221,5 +221,5 @@ class Handler(SimpleHTTPRequestHandler):
 if __name__ == '__main__':
     port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get('PORT') or 8765)
     init()
-    print(f'Bookshelf Tracker running on port {port} (data in {os.path.dirname(DB)})', flush=True)
+    print(f'Book Shelf running on port {port} (data in {os.path.dirname(DB)})', flush=True)
     ThreadingHTTPServer(('0.0.0.0', port), functools.partial(Handler, directory=ROOT)).serve_forever()

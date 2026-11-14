@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Bookshelf Tracker</title>
+<title>Book Shelf</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#000000">
 <link rel="icon" href="assets/icons/icon-192.png">
@@ -1478,7 +1478,7 @@ window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installEvt=
 window.addEventListener('appinstalled',()=>{installEvt=null;toast('Installed')});
 if('serviceWorker' in navigator&&isSecureContext&&!VIEW)navigator.serviceWorker.register('sw.js').catch(()=>{});
 function installHTML(){
-  if(standalone())return `<div class="tile"><b style="font-size:16px">Installed</b><span>You are using Bookshelf Tracker as an app.</span></div>`;
+  if(standalone())return `<div class="tile"><b style="font-size:16px">Installed</b><span>You are using Book Shelf as an app.</span></div>`;
   if(installEvt)return `<button class="btn y" id="inst">${ic(DL)} Install app</button>`;
   const ios=/iphone|ipad|ipod/i.test(navigator.userAgent);
   return `<div class="tile"><b style="font-size:16px">Install on your phone</b><span>${ios?'In Safari, tap the Share button, then “Add to Home Screen”.':'Open your browser menu (⋮) and choose “Install app” or “Add to Home screen”.'}${isSecureContext?'':'<br>On this address that adds a home-screen shortcut. A full install that also works offline needs an https:// address.'}</span></div>`;
@@ -1509,7 +1509,7 @@ async function viewShared(){
   const v=$('#view');v.innerHTML='<div class="empty"><p>Opening the shelf…</p></div>';
   let j;
   try{j=await api('shared/'+encodeURIComponent(SHARE_ID))}
-  catch(e){v.innerHTML=`<div class="empty"><p>${esc(e.status===404?'This shelf is not shared any more.':e.message)}</p><a class="btn sm y" href="${location.pathname}">Open Bookshelf Tracker</a></div>`;return}
+  catch(e){v.innerHTML=`<div class="empty"><p>${esc(e.status===404?'This shelf is not shared any more.':e.message)}</p><a class="btn sm y" href="${location.pathname}">Open Book Shelf</a></div>`;return}
   S=Object.assign(EMPTY(),j.data||{});ensure();
   document.title=j.name+"'s bookshelf";
   v.innerHTML=`<div class="shelfhead"><b>${esc(j.name)}'s bookshelf</b><span>${S.books.length} book${S.books.length===1?'':'s'} · view only</span></div>${shelfHTML(S.books)}
@@ -1636,7 +1636,7 @@ async function shelfCanvas(){
     const fm=String(FRAMES[sh.frame]||'').match(/(\d+)px solid (#\w+)/);
     if(fm){ctx.strokeStyle=fm[2];ctx.lineWidth=+fm[1];ctx.strokeRect(+fm[1]/2,+fm[1]/2,R.width-+fm[1],R.height-+fm[1])}
     ctx.restore();
-    ctx.fillStyle='#55555c';ctx.font='11px system-ui,sans-serif';ctx.textAlign='center';ctx.fillText('Made with Bookshelf Tracker',W/2,H-12);
+    ctx.fillStyle='#55555c';ctx.font='11px system-ui,sans-serif';ctx.textAlign='center';ctx.fillText('Made with Book Shelf',W/2,H-12);
     return cv;
   }finally{wrap.remove()}
 }
@@ -1962,7 +1962,7 @@ async function logOut(){
 }
 function showGate(msg){
   const g=$('#gate');
-  g.innerHTML=`<h2>Bookshelf Tracker</h2><p class="muted center" style="margin:0 0 18px">Log in to keep your library on any device.</p>
+  g.innerHTML=`<h2>Book Shelf</h2><p class="muted center" style="margin:0 0 18px">Log in to keep your library on any device.</p>
     <label>Email or username</label><input id="gu" autocomplete="username" autocapitalize="none" spellcheck="false">
     <label>Password (6 characters or more)</label><input id="gp" type="password" autocomplete="current-password">
     <div class="err" id="ge">${esc(msg||'')}</div>

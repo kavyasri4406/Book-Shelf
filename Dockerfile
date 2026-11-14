@@ -1,4 +1,4 @@
-# Bookshelf Tracker: one small Python server that serves the app and stores accounts in SQLite.
+# Book Shelf: one small Python server that serves the app and stores accounts in SQLite.
 FROM python:3.12-slim
 WORKDIR /app
 COPY . .

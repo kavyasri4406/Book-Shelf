@@ -2,7 +2,7 @@
 # Persistent disks need a paid Render plan; on the free plan accounts are lost on each redeploy.
 services:
   - type: web
-    name: bookshelf-tracker
+    name: book-shelf
     runtime: docker
     plan: starter
     healthCheckPath: /index.html
