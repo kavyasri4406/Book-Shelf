@@ -6,3 +6,4 @@ __pycache__/
 # database connection strings (secrets)
 .env
 .env.*
+.neon

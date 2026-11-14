@@ -478,11 +478,11 @@ function detailsModal(b){
     <label>Your rating</label>${starsHTML(b.rating||0)}
     <label>Review</label><textarea id="rv" rows="3" placeholder="What did you think?">${esc(b.review||'')}</textarea>
     <label>Cover URL</label><input id="cv" value="${esc(b.cover||'')}">
-    <label>Spine on the shelf</label><div class="row"><button type="button" class="btn sm" id="spp">${b.spineImg?'Change spine photo':'Add a photo of the real spine'}</button>${b.spineImg?'<button type="button" class="btn sm r" id="spx">Remove</button>':''}</div>
+    <label>Spine on the shelf${b.spineShared?' · photo shared by another reader':''}</label><div class="row"><button type="button" class="btn sm" id="spp">${b.spineImg?'Change spine photo':'Add a photo of the real spine'}</button>${b.spineImg?'<button type="button" class="btn sm r" id="spx">Remove</button>':''}</div>
     <div class="row" style="margin-top:16px"><button class="btn r" id="del">Delete</button><button class="btn y" id="s">Save</button></div>`,()=>{
     $('#st').value=b.status;let rate=b.rating||0;bindStars($('#modal .stars'),v=>rate=v);
     $('#spp').onclick=()=>pickSpinePhoto(b,()=>{closeModal();render()});
-    if($('#spx'))$('#spx').onclick=()=>{delete b.spineImg;save();closeModal();render();toast('Spine photo removed')};
+    if($('#spx'))$('#spx').onclick=()=>{if(b.spineShared)b.spineHidden=true;delete b.spineImg;delete b.spineShared;save();closeModal();render();toast('Spine photo removed')};
     $('#s').onclick=()=>{b.rating=rate;b.review=$('#rv').value.trim();b.title=$('#t').value.trim()||b.title;b.author=$('#a').value.trim();b.pages=+$('#p').value||0;b.current=+$('#cp').value||0;b.cover=$('#cv').value.trim();
       if($('#st').value!==b.status)setStatus(b,$('#st').value);save();closeModal();render()};
     $('#del').onclick=()=>{if(confirm('Delete this book and its sessions and notes?')){S.books=S.books.filter(x=>x!==b);S.sessions=S.sessions.filter(s=>s.bookId!==b.id);S.notes=S.notes.filter(n=>n.bookId!==b.id);if(S.currentId===b.id)S.currentId=null;save();closeModal();render()}};
@@ -961,8 +961,24 @@ function coverColor(b){return new Promise(res=>{
     fin(bg,fg)}catch(e){fin()}};
   im.onerror=()=>fin();im.src=b.cover+(b.cover.includes('?')?'&':'?')+'cors=1';setTimeout(fin,6000);
 })}
+// shared spine photos: one per book on the server, keyed by its title and author
+const spineKey=b=>{const t=norm(b.title).slice(0,160);return t.length>=2?t+'|'+norm(lastName(b)).slice(0,60):''};
+function shareSpine(b){const key=spineKey(b);if(auth&&key&&b.spineImg&&!b.spineShared)api('spine','POST',{key,img:b.spineImg}).catch(()=>{})}
+let fetchingSpines=false;
+async function fetchSharedSpines(list){
+  if(fetchingSpines||VIEW)return;
+  const now=Date.now(),todo=list.filter(b=>!b.spineImg&&!b.spineHidden&&spineKey(b)&&(!b.spcAt||now-b.spcAt>864e5)).slice(0,80);
+  if(!todo.length)return;
+  fetchingSpines=true;
+  try{
+    const j=await api('spines?keys='+encodeURIComponent(todo.map(spineKey).join(',')));
+    let got=0;todo.forEach(b=>{b.spcAt=now;const img=(j.spines||{})[spineKey(b)];if(img){b.spineImg=img;b.spineShared=true;got++}});
+    save();if(got&&tab==='library'&&!drag&&!edit)vLibrary();
+  }catch(e){}finally{fetchingSpines=false}
+}
 let tinting=false;
 async function tintSpines(list){
+  fetchSharedSpines(list);
   const todo=list.filter(b=>!b.sp);if(!todo.length||tinting)return;
   tinting=true;await Promise.all(todo.map(coverColor));tinting=false;save();
   if(tab==='library'&&libView==='shelf'&&!drag)vLibrary();
@@ -981,7 +997,7 @@ function pickSpinePhoto(b,done){
     im.onload=()=>{const rot=im.width>im.height,sw=rot?im.height:im.width,sh=rot?im.width:im.height,z=Math.min(1,600/sh);
       const c=document.createElement('canvas');c.width=Math.max(1,Math.round(sw*z));c.height=Math.max(1,Math.round(sh*z));const x=c.getContext('2d');
       if(rot){x.translate(c.width,0);x.rotate(Math.PI/2);x.drawImage(im,0,0,c.height,c.width)}else x.drawImage(im,0,0,c.width,c.height);
-      URL.revokeObjectURL(im.src);b.spineImg=c.toDataURL('image/jpeg',.82);save();toast('Spine photo added');done&&done()};
+      URL.revokeObjectURL(im.src);b.spineImg=c.toDataURL('image/jpeg',.82);delete b.spineShared;delete b.spineHidden;save();shareSpine(b);toast(auth?'Spine photo added and shared with other readers':'Spine photo added');done&&done()};
     im.onerror=()=>toast('Could not read that picture');im.src=URL.createObjectURL(file)};
   f.click();
 }
@@ -1141,7 +1157,7 @@ async function act(a,v){
   else if(a==='flip'&&b)b.flip=!b.flip;
   else if(a==='mirror'&&b)b.mirror=!b.mirror;
   else if(a==='spinephoto'&&b){pickSpinePhoto(b,()=>vLibrary());return}
-  else if(a==='nospine'&&b)delete b.spineImg;
+  else if(a==='nospine'&&b){if(b.spineShared)b.spineHidden=true;delete b.spineImg;delete b.spineShared}
   else if(a==='mv'&&b){const dir=+v,row=libList().filter(x=>x.row===b.row),o=row[row.indexOf(b)+dir];
     if(o){const i=S.books.indexOf(b),j=S.books.indexOf(o);[S.books[i],S.books[j]]=[S.books[j],S.books[i]]}
     else if(b.row+dir>=0){                              // past the end of a ledge: step onto the neighbouring one
@@ -1599,7 +1615,7 @@ window.addEventListener('appinstalled',()=>{installEvt=null;toast('Installed')})
 // the visible page height (not the keyboard-shrunk one), so the tab bar sits on the real bottom edge
 (()=>{const fit=()=>{document.documentElement.style.setProperty('--app-h',innerHeight+'px');if(scrollY)scrollTo(0,0)};
   fit();addEventListener('resize',fit);addEventListener('orientationchange',()=>setTimeout(fit,300))})();
-const APP_VERSION='14 Nov 2026 · 7';   // shown in Profile, so you can tell which version a phone has
+const APP_VERSION='14 Nov 2026 · 8';   // shown in Profile, so you can tell which version a phone has
 if('serviceWorker' in navigator&&isSecureContext&&!VIEW){
   const hadController=!!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('sw.js').then(r=>r.update()).catch(()=>{});

@@ -18,11 +18,12 @@ MAX_BODY = 12 * 1024 * 1024          # a library with a few custom pictures fits
 SESSION_DAYS = 30
 PBKDF2_ROUNDS = 200_000
 USERNAME = re.compile(r'^[a-z0-9_.+@-]{3,80}$')   # a plain name or an email address
+SPINE_KEY = re.compile(r'^[^,\s]{2,160}\|[^,\s]{0,60}$')   # normalised title|author, as the app builds it
 FAILS = {}                           # (ip, username) -> recent failed login times
 
 
 def load_env_file(path=os.path.join(ROOT, '.env')):
-    """Read KEY=value lines from .env (written by `neon init`) without overriding real environment variables."""
+    """Read KEY=value lines from a .env file without overriding real environment variables."""
     try:
         with open(path) as f:
             for line in f:
@@ -34,6 +35,7 @@ def load_env_file(path=os.path.join(ROOT, '.env')):
         pass
 
 
+load_env_file(os.path.join(ROOT, '.env.local'))   # `neon init` writes here
 load_env_file()
 DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
 
@@ -130,7 +132,9 @@ def init():
                      'CREATE TABLE IF NOT EXISTS libraries(user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, '
                      'data TEXT NOT NULL, updated DOUBLE PRECISION NOT NULL)',
                      'CREATE TABLE IF NOT EXISTS shares(id TEXT PRIMARY KEY, '
-                     'user_id BIGINT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE, created DOUBLE PRECISION NOT NULL)'):
+                     'user_id BIGINT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE, created DOUBLE PRECISION NOT NULL)',
+                     'CREATE TABLE IF NOT EXISTS spines(key TEXT PRIMARY KEY, img TEXT NOT NULL, '
+                     'user_id BIGINT REFERENCES users(id) ON DELETE SET NULL, created DOUBLE PRECISION NOT NULL)'):
             con.execute(stmt)
         return
     os.makedirs(os.path.dirname(DB), exist_ok=True)
@@ -144,6 +148,8 @@ def init():
                 data TEXT NOT NULL, updated REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS shares(id TEXT PRIMARY KEY,
                 user_id INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE, created REAL NOT NULL);
+            CREATE TABLE IF NOT EXISTS spines(key TEXT PRIMARY KEY, img TEXT NOT NULL,
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, created REAL NOT NULL);
         ''')
 
 
@@ -261,6 +267,15 @@ class Handler(SimpleHTTPRequestHandler):
                         return self.send_json(404, {'error': 'This shelf is not shared any more'})
                     return self.send_json(200, {'name': row[0].split('@')[0],      # never show the owner's email
                                                 'data': public_shelf(json.loads(row[1]) if row[1] else {})})
+                if (method, name) == ('GET', 'spines'):
+                    q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                    keys = [k for k in (q.get('keys', [''])[0]).split(',') if SPINE_KEY.match(k)][:80]
+                    found = {}
+                    for k in keys:
+                        row = con.execute('SELECT img FROM spines WHERE key=?', (k,)).fetchone()
+                        if row:
+                            found[k] = row[0]
+                    return self.send_json(200, {'spines': found})
                 uid = self.user_id(con)
                 if uid is None:
                     return self.send_json(401, {'error': 'Please log in again'})
@@ -279,6 +294,14 @@ class Handler(SimpleHTTPRequestHandler):
                     if not row:
                         con.execute('INSERT INTO shares VALUES(?,?,?)', (sid, uid, time.time()))
                     return self.send_json(200, {'id': sid, 'lan': lan_ip()})
+                if (method, name) == ('POST', 'spine'):
+                    key, img = str(body.get('key') or ''), str(body.get('img') or '')
+                    if not SPINE_KEY.match(key) or not img.startswith('data:image/jpeg;base64,') or len(img) > 300_000:
+                        return self.send_json(400, {'error': 'That spine photo could not be shared'})
+                    con.execute('INSERT INTO spines(key,img,user_id,created) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE '
+                                'SET img=excluded.img, created=excluded.created WHERE spines.user_id=excluded.user_id',
+                                (key, img, uid, time.time()))
+                    return self.send_json(200, {'ok': True})
                 if (method, name) == ('POST', 'unshare'):
                     con.execute('DELETE FROM shares WHERE user_id=?', (uid,))
                     return self.send_json(200, {'ok': True})
