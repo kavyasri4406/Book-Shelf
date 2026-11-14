@@ -460,8 +460,11 @@ function detailsModal(b){
     <label>Your rating</label>${starsHTML(b.rating||0)}
     <label>Review</label><textarea id="rv" rows="3" placeholder="What did you think?">${esc(b.review||'')}</textarea>
     <label>Cover URL</label><input id="cv" value="${esc(b.cover||'')}">
+    <label>Spine on the shelf</label><div class="row"><button type="button" class="btn sm" id="spp">${b.spineImg?'Change spine photo':'Add a photo of the real spine'}</button>${b.spineImg?'<button type="button" class="btn sm r" id="spx">Remove</button>':''}</div>
     <div class="row" style="margin-top:16px"><button class="btn r" id="del">Delete</button><button class="btn y" id="s">Save</button></div>`,()=>{
     $('#st').value=b.status;let rate=b.rating||0;bindStars($('#modal .stars'),v=>rate=v);
+    $('#spp').onclick=()=>pickSpinePhoto(b,()=>{closeModal();render()});
+    if($('#spx'))$('#spx').onclick=()=>{delete b.spineImg;save();closeModal();render();toast('Spine photo removed')};
     $('#s').onclick=()=>{b.rating=rate;b.review=$('#rv').value.trim();b.title=$('#t').value.trim()||b.title;b.author=$('#a').value.trim();b.pages=+$('#p').value||0;b.current=+$('#cp').value||0;b.cover=$('#cv').value.trim();
       if($('#st').value!==b.status)setStatus(b,$('#st').value);save();closeModal();render()};
     $('#del').onclick=()=>{if(confirm('Delete this book and its sessions and notes?')){S.books=S.books.filter(x=>x!==b);S.sessions=S.sessions.filter(s=>s.bookId!==b.id);S.notes=S.notes.filter(n=>n.bookId!==b.id);if(S.currentId===b.id)S.currentId=null;save();closeModal();render()}};
@@ -917,32 +920,52 @@ function vLibrary(){
 
 /* cover colour: average of the cover weighted towards its saturated pixels */
 function coverColor(b){return new Promise(res=>{
-  if(b.rgb)return res();
-  let done=false;const fin=rgb=>{if(done)return;done=true;
-    if(!rgb){const h=pal(b.title);rgb=[1,3,5].map(i=>parseInt(h.slice(i,i+2),16))}
-    const [r,g,l]=rgb,mx=Math.max(r,g,l),dl=mx-Math.min(r,g,l);
-    b.rgb=rgb.map(Math.round);
+  if(b.sp)return res();
+  let done=false;const fin=(bg,fg)=>{if(done)return;done=true;
+    if(!bg){const h=pal(b.title);bg=[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));fg=null}
+    bg=bg.map(Math.round);const lum=c=>.299*c[0]+.587*c[1]+.114*c[2];
+    if(!fg||Math.abs(lum(fg)-lum(bg))<90)fg=lum(bg)>140?[28,22,18]:[248,242,232];
+    const [r,g,l]=bg,mx=Math.max(r,g,l),dl=mx-Math.min(r,g,l);
+    b.rgb=bg;b.sp={bg,fg:fg.map(Math.round)};
     b.hk=dl<=18?400+Math.round(mx):Math.round(((mx===r?((g-l)/dl)%6:mx===g?(l-r)/dl+2:(r-g)/dl+4)*60+360)%360);   // greys sort last
     res()};
   if(!b.cover)return fin();
   const im=new Image();im.crossOrigin='anonymous';
-  im.onload=()=>{try{const c=document.createElement('canvas');c.width=c.height=12;const x=c.getContext('2d');x.drawImage(im,0,0,12,12);
-    const d=x.getImageData(0,0,12,12).data;let r=0,g=0,l=0,n=0;
-    for(let i=0;i<d.length;i+=4){const w=(Math.max(d[i],d[i+1],d[i+2])-Math.min(d[i],d[i+1],d[i+2]))/255+.08;r+=d[i]*w;g+=d[i+1]*w;l+=d[i+2]*w;n+=w}
-    fin([r/n,g/n,l/n])}catch(e){fin()}};
-  im.onerror=()=>fin();im.src=b.cover+(b.cover.includes('?')?'&':'?')+'cors=1';setTimeout(fin,5000);
+  im.onload=()=>{try{
+    const W=24,H=36,c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');x.drawImage(im,0,0,W,H);
+    const d=x.getImageData(0,0,W,H).data,bins=new Map();
+    for(let y=0;y<H;y++)for(let xx=0;xx<W;xx++){const i=(y*W+xx)*4,k=(d[i]>>5)+'.'+(d[i+1]>>5)+'.'+(d[i+2]>>5),w=xx<4?3:1;   // the edge next to the spine counts more
+      const e=bins.get(k)||{n:0,r:0,g:0,b:0};e.n+=w;e.r+=d[i]*w;e.g+=d[i+1]*w;e.b+=d[i+2]*w;bins.set(k,e)}
+    const pal2=[...bins.values()].map(e=>({n:e.n,c:[e.r/e.n,e.g/e.n,e.b/e.n]})).sort((a,c)=>c.n-a.n);
+    const total=pal2.reduce((a,e)=>a+e.n,0),bg=pal2[0].c,lum=c=>.299*c[0]+.587*c[1]+.114*c[2],sat=c=>Math.max(...c)-Math.min(...c);
+    let fg=null,best=0;
+    for(const e of pal2){if(e.n<total*.012)continue;const score=Math.abs(lum(e.c)-lum(bg))+sat(e.c)*.35;if(score>best&&Math.abs(lum(e.c)-lum(bg))>=90){best=score;fg=e.c}}
+    fin(bg,fg)}catch(e){fin()}};
+  im.onerror=()=>fin();im.src=b.cover+(b.cover.includes('?')?'&':'?')+'cors=1';setTimeout(fin,6000);
 })}
 let tinting=false;
 async function tintSpines(list){
-  const todo=list.filter(b=>!b.rgb);if(!todo.length||tinting)return;
+  const todo=list.filter(b=>!b.sp);if(!todo.length||tinting)return;
   tinting=true;await Promise.all(todo.map(coverColor));tinting=false;save();
   if(tab==='library'&&libView==='shelf'&&!drag)vLibrary();
 }
 const cssu=u=>esc(String(u).replace(/["'()\\\s]/g,c=>'%'+c.charCodeAt(0).toString(16)));
-function spineBg(b){
-  if(!b.rgb)return b.cover?`background:linear-gradient(#0005,#0005),#2a2a2e url(${cssu(b.cover)}) 0 50%/800% 100% no-repeat;`:`background:${pal(b.title)};`;
-  const [r,g,l]=b.rgb,lum=.299*r+.587*g+.114*l;
-  return `background:rgb(${r},${g},${l});`+(lum>150?'color:#1c1612;text-shadow:none;':'');
+function spineBg(b,flat){
+  if(b.spineImg&&!flat)return `background:#222 url(${b.spineImg}) center/100% 100% no-repeat;color:transparent;text-shadow:none;`;
+  if(!b.sp)return b.cover?`background:linear-gradient(#0005,#0005),#2a2a2e url(${cssu(b.cover)}) 0 50%/800% 100% no-repeat;`:`background:${pal(b.title)};`;
+  const bg=`rgb(${b.sp.bg})`,fg=`rgb(${b.sp.fg})`,dir=flat?'to right,':'';
+  return `background:linear-gradient(${dir}transparent 7%,${fg} 7% 7.8%,transparent 7.8% 92.2%,${fg} 92.2% 93%,transparent 93%),${bg};color:${fg};text-shadow:none;`;
+}
+// a photo of the book's real spine: a sideways photo is turned upright, then kept small
+function pickSpinePhoto(b,done){
+  const f=$('#pick');f.value='';f.multiple=false;
+  f.onchange=()=>{const file=f.files[0];if(!file)return;const im=new Image();
+    im.onload=()=>{const rot=im.width>im.height,sw=rot?im.height:im.width,sh=rot?im.width:im.height,z=Math.min(1,600/sh);
+      const c=document.createElement('canvas');c.width=Math.max(1,Math.round(sw*z));c.height=Math.max(1,Math.round(sh*z));const x=c.getContext('2d');
+      if(rot){x.translate(c.width,0);x.rotate(Math.PI/2);x.drawImage(im,0,0,c.height,c.width)}else x.drawImage(im,0,0,c.width,c.height);
+      URL.revokeObjectURL(im.src);b.spineImg=c.toDataURL('image/jpeg',.82);save();toast('Spine photo added');done&&done()};
+    im.onerror=()=>toast('Could not read that picture');im.src=URL.createObjectURL(file)};
+  f.click();
 }
 const backBg=b=>b.rgb?`background:rgb(${b.rgb.map(v=>Math.round(v*.28+20)).join(',')});`:'background:#2b2b2d;';
 const lastName=b=>(b.author||'').split(',')[0].trim().split(' ').pop();
@@ -971,7 +994,7 @@ function shelfHTML(list){
   const tf=b=>{const t=(b.flip?'rotate(180deg) ':'')+(b.mirror?'scaleX(-1)':'');return t?`transform:${t};`:''};
   const sel=b=>edit&&selBook===b.id?' sel':'';
   const unit=u=>{
-    if(u.pile)return `<div class="stackcol">${u.books.map(b=>`<div class="flat${sel(b)}" data-id="${b.id}" style="width:${96+hash(b.title)%22}px;height:${Math.max(16,spineW(b)-6)}px;${tf(b)}${spineBg(b)}">${esc(b.title.slice(0,18))}</div>`).join('')}</div>`;
+    if(u.pile)return `<div class="stackcol">${u.books.map(b=>`<div class="flat${sel(b)}" data-id="${b.id}" style="width:${96+hash(b.title)%22}px;height:${Math.max(16,spineW(b)-6)}px;${tf(b)}${spineBg(b,true)}">${esc(b.title.slice(0,18))}</div>`).join('')}</div>`;
     const b=u.b,h=bookH(b);
     if(u.f==='cover')return `<div class="cov${sel(b)}" data-id="${b.id}" style="width:${Math.round(h*.66)}px;height:${h}px;${tf(b)}">${coverHTML(b)}</div>`;
     if(u.f==='edge')return `<div class="edge${sel(b)}" data-id="${b.id}" title="${esc(b.title)}" style="width:${spineW(b)}px;height:${h}px;${tf(b)}"></div>`;
@@ -1057,7 +1080,8 @@ function renderEditUI(){
   if(tool==='move'){
     if(b){hint=esc(b.title);const f=b.face||'spine';
       p=`<div class="pgrid">${[['cover','Cover out'],['spine','Spine out'],['edge','Edge out'],['flat','Lying flat']].map(([k,l])=>chip('face',k,l,f===k)).join('')}</div>
-         <div class="pgrid" style="margin-top:8px">${chip('mv',-1,'◀ Move')}${chip('mv',1,'Move ▶')}${chip('flip','','Upside down',b.flip)}${chip('mirror','','Mirror',b.mirror)}</div>`}
+         <div class="pgrid" style="margin-top:8px">${chip('mv',-1,'◀ Move')}${chip('mv',1,'Move ▶')}${chip('flip','','Upside down',b.flip)}${chip('mirror','','Mirror',b.mirror)}</div>
+         <div class="pgrid" style="margin-top:8px">${chip('spinephoto','',b.spineImg?'Change spine photo':'Photo of real spine')}${b.spineImg?chip('nospine','','Remove photo'):''}</div>`}
     else hint='Drag a book or object to any ledge · tap a book to edit it';
   }else if(tool==='arrange'){
     hint='One tap and the books find their place';
@@ -1098,6 +1122,8 @@ async function act(a,v){
   else if(a==='face'&&b)b.face=v;
   else if(a==='flip'&&b)b.flip=!b.flip;
   else if(a==='mirror'&&b)b.mirror=!b.mirror;
+  else if(a==='spinephoto'&&b){pickSpinePhoto(b,()=>vLibrary());return}
+  else if(a==='nospine'&&b)delete b.spineImg;
   else if(a==='mv'&&b){const dir=+v,row=libList().filter(x=>x.row===b.row),o=row[row.indexOf(b)+dir];
     if(o){const i=S.books.indexOf(b),j=S.books.indexOf(o);[S.books[i],S.books[j]]=[S.books[j],S.books[i]]}
     else if(b.row+dir>=0){                              // past the end of a ledge: step onto the neighbouring one
@@ -1554,17 +1580,22 @@ async function paintBg(ctx,css,x,y,w,h,s){
 }
 function vGrad(ctx,y,h,stops){const g=ctx.createLinearGradient(0,y,0,y+h);stops.forEach(([o,c])=>g.addColorStop(o,c));return g}
 async function paintBookFace(ctx,b,r,flat){
-  if(b.rgb){ctx.fillStyle=`rgb(${b.rgb.join(',')})`;ctx.fillRect(r.x,r.y,r.w,r.h)}
-  else{
+  const gloss=()=>{const g=flat?vGrad(ctx,r.y,r.h,[[0,'rgba(255,255,255,.13)'],[.4,'rgba(0,0,0,0)'],[1,'rgba(0,0,0,.5)']]):ctx.createLinearGradient(r.x,0,r.x+r.w,0);
+    if(!flat)[[0,'rgba(0,0,0,.5)'],[.28,'rgba(0,0,0,0)'],[.5,'rgba(255,255,255,.13)'],[.72,'rgba(0,0,0,0)'],[1,'rgba(0,0,0,.56)']].forEach(([o,c])=>g.addColorStop(o,c));
+    ctx.fillStyle=g;ctx.fillRect(r.x,r.y,r.w,r.h)};
+  if(b.spineImg&&!flat){const im=await loadImg(b.spineImg);if(im){ctx.drawImage(im,r.x,r.y,r.w,r.h);gloss();return}}
+  let ink;
+  if(b.sp){
+    ctx.fillStyle=`rgb(${b.sp.bg})`;ctx.fillRect(r.x,r.y,r.w,r.h);ink=`rgb(${b.sp.fg})`;ctx.fillStyle=ink;
+    if(flat){ctx.fillRect(r.x+r.w*.07,r.y,Math.max(1,r.w*.008),r.h);ctx.fillRect(r.x+r.w*.922,r.y,Math.max(1,r.w*.008),r.h)}
+    else{ctx.fillRect(r.x,r.y+r.h*.07,r.w,Math.max(1,r.h*.008));ctx.fillRect(r.x,r.y+r.h*.922,r.w,Math.max(1,r.h*.008))}
+  }else{
     const im=b.cover&&await loadImg(b.cover);
     if(im){ctx.drawImage(im,0,0,im.width/8,im.height,r.x,r.y,r.w,r.h);ctx.fillStyle='rgba(0,0,0,.33)';ctx.fillRect(r.x,r.y,r.w,r.h)}
     else{ctx.fillStyle=b.cover?'#2a2a2e':pal(b.title);ctx.fillRect(r.x,r.y,r.w,r.h)}
   }
-  const g=flat?vGrad(ctx,r.y,r.h,[[0,'rgba(255,255,255,.13)'],[.4,'rgba(0,0,0,0)'],[1,'rgba(0,0,0,.5)']]):ctx.createLinearGradient(r.x,0,r.x+r.w,0);
-  if(!flat)[[0,'rgba(0,0,0,.5)'],[.28,'rgba(0,0,0,0)'],[.5,'rgba(255,255,255,.13)'],[.72,'rgba(0,0,0,0)'],[1,'rgba(0,0,0,.56)']].forEach(([o,c])=>g.addColorStop(o,c));
-  ctx.fillStyle=g;ctx.fillRect(r.x,r.y,r.w,r.h);
-  const dark=b.rgb&&(.299*b.rgb[0]+.587*b.rgb[1]+.114*b.rgb[2])>150;
-  ctx.fillStyle=dark?'#1c1612':'#fff';ctx.shadowColor=dark?'transparent':'rgba(0,0,0,.9)';ctx.shadowBlur=dark?0:3;
+  gloss();
+  ctx.fillStyle=ink||'#fff';ctx.shadowColor=ink?'transparent':'rgba(0,0,0,.9)';ctx.shadowBlur=ink?0:3;
   ctx.textAlign='center';ctx.textBaseline='middle';
   if(flat){ctx.font='bold 9px Georgia,serif';ctx.fillText(b.title.slice(0,18),r.x+r.w/2,r.y+r.h/2,r.w-10)}
   else{
