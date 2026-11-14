@@ -2083,7 +2083,7 @@ async function api(path,method='GET',body){
   return j;
 }
 function setSync(t){syncState=t;const el=$('#sync');if(el)el.textContent=t}
-function setAuth(a){auth=a;try{a?localStorage.setItem(AKEY,JSON.stringify(a)):localStorage.removeItem(AKEY)}catch(e){}}
+function setAuth(a){auth=a;try{if(a){localStorage.setItem(AKEY,JSON.stringify(a));localStorage.setItem('bookshelf-lastuser',a.username)}else localStorage.removeItem(AKEY)}catch(e){}}
 function queuePush(){if(!auth)return;clearTimeout(syncT);syncT=setTimeout(push,900)}
 async function push(){
   clearTimeout(syncT);syncT=null;if(!auth)return true;
@@ -2114,7 +2114,7 @@ async function logOut(){
 function showGate(msg){
   const g=$('#gate');
   g.innerHTML=`<h2>Book Shelf</h2><p class="muted center" style="margin:0 0 18px">Log in to keep your library on any device.</p>
-    <label>Email or username</label><input id="gu" autocomplete="username" autocapitalize="none" spellcheck="false">
+    <label>Email or username</label><input id="gu" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" value="${esc((()=>{try{return localStorage.getItem('bookshelf-lastuser')||''}catch(e){return ''}})())}">
     <label>Password (6 characters or more)</label><input id="gp" type="password" autocomplete="current-password">
     <div class="err" id="ge">${esc(msg||'')}</div>
     <div class="stack" style="margin:0"><button class="btn y" id="gl">Log in</button><button class="btn" id="gs">Create account</button></div>
@@ -2125,7 +2125,15 @@ function showGate(msg){
     if(!u||!p){$('#ge').textContent='Enter a username and a password';return}
     $('#gl').disabled=$('#gs').disabled=true;$('#ge').textContent='';
     try{await signIn(mode,u,p);g.classList.remove('show');g.innerHTML='';render();toast(mode==='signup'?'Account created':'Logged in')}
-    catch(e){$('#ge').textContent=e.message;$('#gl').disabled=$('#gs').disabled=false}
+    catch(e){
+      $('#gl').disabled=$('#gs').disabled=false;
+      let last='';try{last=localStorage.getItem('bookshelf-lastuser')||''}catch(_){}
+      // the server lost its accounts (free hosting resets them), but this phone still has the library
+      if(mode==='login'&&e.status===401&&last===u.toLowerCase()&&S.books.length){
+        $('#ge').innerHTML=`The server no longer has this account. Free hosting resets accounts when it restarts.<br>Your ${S.books.length} books are still on this phone.<br><button class="btn y sm" id="grec" style="margin-top:10px">Restore my account</button>`;
+        $('#grec').onclick=()=>go('signup');
+      }else $('#ge').textContent=e.message;
+    }
   };
   $('#gl').onclick=()=>go('login');$('#gs').onclick=()=>go('signup');
   $('#gp').onkeydown=e=>{if(e.key==='Enter')go('login')};
