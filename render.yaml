@@ -1,0 +1,17 @@
+# Render blueprint: a Docker web service with a 1 GB disk for the accounts database.
+# Persistent disks need a paid Render plan; on the free plan accounts are lost on each redeploy.
+services:
+  - type: web
+    name: bookshelf-tracker
+    runtime: docker
+    plan: starter
+    healthCheckPath: /index.html
+    envVars:
+      - key: DATA_DIR
+        value: /data
+      - key: TRUST_PROXY
+        value: "1"
+    disk:
+      name: bookshelf-data
+      mountPath: /data
+      sizeGB: 1

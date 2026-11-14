@@ -1,0 +1,4 @@
+# local accounts and libraries: never commit or deploy them
+data/
+__pycache__/
+*.pyc

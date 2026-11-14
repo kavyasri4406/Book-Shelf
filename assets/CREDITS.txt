@@ -1,0 +1,25 @@
+Image credits
+=============
+
+Textures in assets/walls and object images in assets/objects without an x_ prefix come from Poly Haven (polyhaven.com), released under CC0.
+
+Scene backgrounds in assets/scenes are crops of Poly Haven panoramas (HDRIs), also CC0.
+
+Object images with an x_ prefix come from Wikimedia Commons. Each was cropped and resized.
+
+x_animal_skull.png — "Animal skull.png" by Tiia Monto, CC BY-SA 3.0, https://commons.wikimedia.org/wiki/File:Animal_skull.png
+x_cattle_skull.png — "Cattle skull.png" by Fæ, CC BY-SA 4.0, https://commons.wikimedia.org/wiki/File:Cattle_skull.png
+x_ram_skull.png — "Sheep skull.png" by BotMultichillT, CC BY-SA 4.0, https://commons.wikimedia.org/wiki/File:Sheep_skull.png
+x_white_candle.png — "White candle (transparent).png" by Original image by: William WarbyExtended and background remo, CC BY 2.0, https://commons.wikimedia.org/wiki/File:White_candle_(transparent).png
+x_orange_pumpkin.png — "Orange pumpkin.png" by PomPrint, CC BY-SA 3.0, https://commons.wikimedia.org/wiki/File:Orange_pumpkin.png
+x_white_cat.png — "BLH cat transparent.png" by Chatterie des Millenovæ http://www.millenovae.com, CC BY-SA 4.0, https://commons.wikimedia.org/wiki/File:BLH_cat_transparent.png
+x_monarch_butterfly.png — "Danaus plexippus-transparent.png" by Nature Study Publishing Company, Chicago., Public domain, https://commons.wikimedia.org/wiki/File:Danaus_plexippus-transparent.png
+x_painted_lady.png — "Vanessa virginiensis-transparent.png" by Nature Study Publishing Company, Chicago., Public domain, https://commons.wikimedia.org/wiki/File:Vanessa_virginiensis-transparent.png
+x_moth.png — "Polyphemus moth transparent bkgrnd.png" by Fir0002 at en.wikipedia, CC BY-SA 3.0, https://commons.wikimedia.org/wiki/File:Polyphemus_moth_transparent_bkgrnd.png
+x_crown.png — "Replica of Crown of Wilhelm II 002.png" by Gryffindor, CC BY-SA 3.0, https://commons.wikimedia.org/wiki/File:Replica_of_Crown_of_Wilhelm_II_002.png
+x_spider.png — "Brown Trapdoor Spider, transparent background.png" by Johan C.G. Fagerholm, CC BY-SA 3.0, https://commons.wikimedia.org/wiki/File:Brown_Trapdoor_Spider,_transparent_background.png
+x_black_rose.png — "Rose und Eis freigestellt.png" by Pipifaxa, CC0, https://commons.wikimedia.org/wiki/File:Rose_und_Eis_freigestellt.png
+x_bouquet.png — "Flower bouquet yellow white red.png" by Nevit Dilmen (talk), CC BY-SA 3.0, https://commons.wikimedia.org/wiki/File:Flower_bouquet_yellow_white_red.png
+x_red_rose.png — "Red rose.png" by Epicphotoguy, CC BY-SA 4.0, https://commons.wikimedia.org/wiki/File:Red_rose.png
+x_skull_row.png — "Primate skull series.png" by K. Nadiya, CC BY 2.5, https://commons.wikimedia.org/wiki/File:Primate_skull_series.png
+x_phonograph.png — "ELP laser turntable musica-phonograph-03 (13837110525).png" by Carl Flisch, CC BY-SA 2.0, https://commons.wikimedia.org/wiki/File:ELP_laser_turntable_musica-phonograph-03_(13837110525).png
