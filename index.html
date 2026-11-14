@@ -338,6 +338,13 @@
   .bsheet{display:flex;gap:14px;align-items:flex-start}.bsheet .c{width:96px;flex:none}.bsheet .ph{font-size:12px}
   input,textarea,select{font-size:16px}
   @supports(height:100dvh){html,body,#app{height:100dvh}}
+  /* on a phone, pin the app to the screen: only the inner page scrolls, so the browser bar
+     never slides the layout and the tab bar stays at the bottom */
+  #view{overscroll-behavior:contain}
+  @media (max-width:599px){
+    html,body{height:100%;overflow:hidden;overscroll-behavior:none}
+    #app{position:fixed;top:0;left:0;right:0;bottom:0;height:auto;max-width:none}
+  }
   /* on a computer, show the app at phone size in a phone-shaped frame */
   @media (min-width:600px){
     html,body{height:100%;height:100dvh;overflow:hidden}
