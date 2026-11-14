@@ -1,5 +1,4 @@
 # Book Shelf
-
 A reading tracker with a decorated 3D bookshelf: reading sessions, streaks, ratings, notebooks,
 book search by language, author and genre pages, multiple libraries, themes, and accounts that
 keep your library on the server.
