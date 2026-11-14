@@ -1,6 +1,6 @@
 // Book Shelf service worker: keeps the app and its pictures available offline.
 // The page is fetched fresh when online; shelf pictures come from the cache once seen. The /api/ calls are never cached.
-const CACHE = 'bookshelf-v1';
+const CACHE = 'bookshelf-v2';   // bump to make phones drop the old copy
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'assets/icons/icon-192.png', 'assets/icons/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -22,7 +22,7 @@ self.addEventListener('fetch', e => {
     }));
     return;
   }
-  e.respondWith(fetch(e.request).then(r => {
+  e.respondWith(fetch(e.request, { cache: 'no-store' }).then(r => {
     if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
     return r;
   }).catch(() => caches.match(e.request).then(h => h || caches.match('index.html'))));

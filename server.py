@@ -21,6 +21,20 @@ USERNAME = re.compile(r'^[a-z0-9_.+@-]{3,80}$')   # a plain name or an email add
 FAILS = {}                           # (ip, username) -> recent failed login times
 
 
+def load_env_file(path=os.path.join(ROOT, '.env')):
+    """Read KEY=value lines from .env (written by `neon init`) without overriding real environment variables."""
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    os.environ.setdefault(k.strip().removeprefix('export ').strip(), v.strip().strip('"').strip("'"))
+    except OSError:
+        pass
+
+
+load_env_file()
 DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
 
 

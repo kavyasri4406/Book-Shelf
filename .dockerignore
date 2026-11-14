@@ -2,3 +2,7 @@ data/
 __pycache__/
 .git/
 *.pyc
+
+# database connection strings (secrets)
+.env
+.env.*

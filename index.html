@@ -343,7 +343,7 @@
   #view{overscroll-behavior:contain}
   @media (max-width:599px){
     html,body{height:100%;overflow:hidden;overscroll-behavior:none}
-    #app{position:fixed;top:0;left:0;right:0;bottom:0;height:auto;max-width:none}
+    #app{position:fixed;top:0;left:0;right:0;bottom:auto;height:var(--app-h,100%);max-width:none}
   }
   /* on a computer, show the app at phone size in a phone-shaped frame */
   @media (min-width:600px){
@@ -1329,7 +1329,7 @@ function vSettings(){
       <button class="btn" id="demo">Load sample books</button>
       <button class="btn r" id="clr">Erase all data</button>
     </div>
-    <p class="muted center" style="font-size:12px;margin-top:24px">Covers from Open Library & Google Books.<br>Shelf images from Poly Haven and Wikimedia Commons: <a href="assets/CREDITS.txt" target="_blank" style="color:inherit">image credits</a>.</p>`;
+    <p class="muted center" style="font-size:12px;margin-top:24px">Book Shelf version ${APP_VERSION}<br>Covers from Open Library & Google Books.<br>Shelf images from Poly Haven and Wikimedia Commons: <a href="assets/CREDITS.txt" target="_blank" style="color:inherit">image credits</a>.</p>`;
   $('#ex').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:'application/json'}));a.download='books-backup.json';a.click()};
   $('#im').onclick=()=>$('#f').click();
   $('#f').onchange=async e=>{try{const j=JSON.parse(await e.target.files[0].text());if(!j.books)throw 0;S=j;ensure();save();toast('Imported');render()}catch(_){toast('Invalid file')}};
@@ -1596,7 +1596,15 @@ let installEvt=null;
 const standalone=()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installEvt=e;if(tab==='profile'&&!VIEW)render()});
 window.addEventListener('appinstalled',()=>{installEvt=null;toast('Installed')});
-if('serviceWorker' in navigator&&isSecureContext&&!VIEW)navigator.serviceWorker.register('sw.js').catch(()=>{});
+// the visible page height (not the keyboard-shrunk one), so the tab bar sits on the real bottom edge
+(()=>{const fit=()=>{document.documentElement.style.setProperty('--app-h',innerHeight+'px');if(scrollY)scrollTo(0,0)};
+  fit();addEventListener('resize',fit);addEventListener('orientationchange',()=>setTimeout(fit,300))})();
+const APP_VERSION='14 Nov 2026 · 7';   // shown in Profile, so you can tell which version a phone has
+if('serviceWorker' in navigator&&isSecureContext&&!VIEW){
+  const hadController=!!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js').then(r=>r.update()).catch(()=>{});
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{if(hadController&&!window.__reloaded){window.__reloaded=1;location.reload()}});
+}
 function installHTML(){
   if(standalone())return `<div class="tile"><b style="font-size:16px">Installed</b><span>You are using Book Shelf as an app.</span></div>`;
   if(installEvt)return `<button class="btn y" id="inst">${ic(DL)} Install app</button>`;
