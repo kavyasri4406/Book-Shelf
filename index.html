@@ -358,6 +358,14 @@
   .pickl{max-height:50vh;overflow-y:auto}.pickr{display:flex;align-items:center;gap:10px;padding:7px 2px;margin:0;color:var(--fg);font-size:14px;border-bottom:1px solid var(--line)}
   .pickr input{width:20px;height:20px;flex:none;accent-color:var(--accent)}.pickr .c{width:30px;flex:none}.pickr .ph{font-size:5px}.pickr b{display:block;font:600 14px Georgia,serif}.pickr i{font-size:11px;color:var(--muted);font-style:normal}
   #view,.sheet,.pickl{scrollbar-width:none}#view::-webkit-scrollbar,.sheet::-webkit-scrollbar,.pickl::-webkit-scrollbar{display:none}
+  .cropov{position:absolute;inset:0;z-index:30;background:#0b0908;color:#f2f2f2;display:flex;flex-direction:column;padding:14px}
+  .crophead{text-align:center;padding:8px 36px 10px}.crophead b{display:block;font:700 18px Georgia,serif}.crophead span{font-size:12px;color:#b9ab95}
+  .cropstage{flex:1;position:relative;display:flex;align-items:center;justify-content:center;touch-action:none;overflow:hidden;min-height:0}
+  .cropstage img{max-width:100%;max-height:100%;display:block;user-select:none;-webkit-user-drag:none;pointer-events:none}
+  .cbox{position:absolute;border:2px solid var(--yellow);box-shadow:0 0 0 9999px #000a;border-radius:4px;pointer-events:none}
+  .cropbar{display:flex;gap:8px;padding-top:12px}.cropbar button{flex:1;padding:12px 6px;border-radius:999px;background:#2a211c;color:#f2f2f2;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px}
+  .cropbar button svg{width:17px;height:17px}.cropbar .y{background:var(--accent);color:var(--accentfg)}
+  .cropov .cx{position:absolute;top:14px;left:14px;width:34px;height:34px;border-radius:50%;background:#ffffff1a;color:#fff}
 </style>
 </head>
 <body>
@@ -1494,15 +1502,84 @@ async function ocrFile(file,onp){
   finally{w.terminate()}
 }
 const tidyOCR=t=>String(t||'').replace(/-\s*\n\s*/g,'').replace(/\s*\n\s*/g,' ').replace(/\s{2,}/g,' ').trim();
+// ---- scan: pick the lines on the photo, clean the picture up, read it, keep only confident lines ----
+// load a photo into a canvas (kept at most 2600px on its long side)
+function photoCanvas(file){return new Promise((res,rej)=>{const i=new Image();
+  i.onload=()=>{const z=Math.min(1,2600/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=Math.round(i.width*z);c.height=Math.round(i.height*z);
+    c.getContext('2d').drawImage(i,0,0,c.width,c.height);URL.revokeObjectURL(i.src);res(c)};
+  i.onerror=()=>rej(new Error('Could not open that picture. Try a JPG or PNG photo.'));i.src=URL.createObjectURL(file)})}
+const rotate90=s=>{const c=document.createElement('canvas');c.width=s.height;c.height=s.width;const x=c.getContext('2d');x.translate(c.width,0);x.rotate(Math.PI/2);x.drawImage(s,0,0);return c};
+// full-screen cropper: drag a box around the lines; resolves with {canvas, box} or null
+function cropPhoto(src){return new Promise(done=>{
+  const ov=document.createElement('div');ov.className='cropov';
+  ov.innerHTML=`<div class="crophead"><b>Select the lines to read</b><span>Drag a box around just the text you want. Good light and a straight-on photo work best.</span></div>
+    <div class="cropstage" id="cstage"><img id="cimg" alt=""><div class="cbox" id="cbox"></div></div>
+    <div class="cropbar"><button id="crot">${ic('M4 12a8 8 0 0 1 14-5l2-2v6h-6l2.5-2.5A5 5 0 0 0 7 12')}Rotate</button><button id="call">Whole photo</button><button id="cread" class="y">Read text</button></div>
+    <button class="cx" id="cx" aria-label="Cancel">✕</button>`;
+  $('#app').appendChild(ov);
+  const img=ov.querySelector('#cimg'),boxEl=ov.querySelector('#cbox'),stage=ov.querySelector('#cstage');
+  let box={x:.08,y:.3,w:.84,h:.3};               // fractions of the photo
+  const show=()=>{img.src=src.toDataURL('image/jpeg',.85)};
+  const place=()=>{const r=img.getBoundingClientRect(),s=stage.getBoundingClientRect();
+    Object.assign(boxEl.style,{left:(r.left-s.left+box.x*r.width)+'px',top:(r.top-s.top+box.y*r.height)+'px',width:box.w*r.width+'px',height:box.h*r.height+'px'})};
+  img.onload=place;show();
+  let a=null;
+  stage.onpointerdown=e=>{const r=img.getBoundingClientRect();a={x:(e.clientX-r.left)/r.width,y:(e.clientY-r.top)/r.height};stage.setPointerCapture(e.pointerId)};
+  stage.onpointermove=e=>{if(!a)return;const r=img.getBoundingClientRect(),cl=v=>Math.max(0,Math.min(1,v)),bx=cl((e.clientX-r.left)/r.width),by=cl((e.clientY-r.top)/r.height),ax=cl(a.x),ay=cl(a.y);
+    if(Math.abs(bx-ax)>.02&&Math.abs(by-ay)>.01){box={x:Math.min(ax,bx),y:Math.min(ay,by),w:Math.abs(bx-ax),h:Math.abs(by-ay)};place()}};
+  stage.onpointerup=stage.onpointercancel=()=>{a=null};
+  const end=v=>{ov.remove();done(v)};
+  ov.querySelector('#cx').onclick=()=>end(null);
+  ov.querySelector('#crot').onclick=()=>{src=rotate90(src);box={x:.08,y:.3,w:.84,h:.3};show()};
+  ov.querySelector('#call').onclick=()=>end({canvas:src,box:{x:0,y:0,w:1,h:1},whole:true});
+  ov.querySelector('#cread').onclick=()=>end({canvas:src,box,whole:false});
+})}
+// crop, enlarge small text, flatten uneven light, and turn the page black-on-white
+function prepForOCR(src,b){
+  const r={x:Math.round(b.x*src.width),y:Math.round(b.y*src.height),w:Math.max(8,Math.round(b.w*src.width)),h:Math.max(8,Math.round(b.h*src.height))};
+  let s=Math.min(3,Math.max(1,1600/r.w));if(r.w*s>2600)s=2600/r.w;
+  const c=document.createElement('canvas');c.width=Math.round(r.w*s);c.height=Math.round(r.h*s);
+  const x=c.getContext('2d');x.imageSmoothingQuality='high';x.drawImage(src,r.x,r.y,r.w,r.h,0,0,c.width,c.height);
+  const W=c.width,H=c.height,id=x.getImageData(0,0,W,H),d=id.data,g=new Float32Array(W*H);let sum=0;
+  for(let i=0;i<W*H;i++){const v=.299*d[i*4]+.587*d[i*4+1]+.114*d[i*4+2];g[i]=v;sum+=v}
+  if(sum/(W*H)<110)for(let i=0;i<W*H;i++)g[i]=255-g[i];          // light text on a dark screen: flip it
+  const I=new Float64Array((W+1)*(H+1));
+  for(let y=1;y<=H;y++){let row=0;for(let xx=1;xx<=W;xx++){row+=g[(y-1)*W+xx-1];I[y*(W+1)+xx]=I[(y-1)*(W+1)+xx]+row}}
+  const R=Math.max(15,Math.round(W/40));
+  for(let y=0;y<H;y++){const y0=Math.max(0,y-R),y1=Math.min(H,y+R+1);
+    for(let xx=0;xx<W;xx++){const x0=Math.max(0,xx-R),x1=Math.min(W,xx+R+1),m=(I[y1*(W+1)+x1]-I[y0*(W+1)+x1]-I[y1*(W+1)+x0]+I[y0*(W+1)+x0])/((x1-x0)*(y1-y0));
+      const v=g[y*W+xx]<m*.88?0:255,j=(y*W+xx)*4;d[j]=d[j+1]=d[j+2]=v;d[j+3]=255}}
+  x.putImageData(id,0,0);return c;
+}
+// keep lines the reader is sure about and that look like words, not specks
+function goodText(data){
+  const lines=(data.lines||[]).filter(l=>{const t=l.text.trim(),letters=(t.match(/[\p{L}]/gu)||[]).length;return t&&l.confidence>=55&&letters/t.replace(/\s/g,'').length>=.6});
+  return tidyOCR((lines.length||!data.lines?lines.map(l=>l.text).join('\n'):'').replace(/[|{}~_\\]+/g,' ')).replace(/\s+([,.;:!?])/g,'$1');
+}
+async function ocrCanvas(c,whole,onp){
+  const T=await loadTess();onp(-1);
+  const w=await Promise.race([T.createWorker('eng',1,{logger:m=>{if(m.status==='recognizing text')onp(Math.round(m.progress*100))}}),
+    new Promise((_,j)=>setTimeout(()=>j(new Error('The text reader did not start. Check your internet connection and try again.')),90000))]);
+  try{
+    await w.setParameters({tessedit_pageseg_mode:whole?'3':'6',preserve_interword_spaces:'1'});
+    const res=await Promise.race([w.recognize(c),new Promise((_,j)=>setTimeout(()=>j(new Error('Reading took too long. Select fewer lines and try again.')),120000))]);
+    return goodText(res.data);
+  }finally{w.terminate()}
+}
 async function scanInto(ta,st,camera){
   const file=await pickPhoto(camera);if(!file)return;
-  const btns=[...document.querySelectorAll('#scan,#scang')];btns.forEach(b=>b.disabled=true);
-  st.textContent='Photo received. Loading the text reader… (the first time downloads about 4 MB)';
+  const btns=[...document.querySelectorAll('#scan,#scang')];
   try{
-    const text=tidyOCR(await ocrFile(file,p=>{st.textContent=p<0?'Starting the text reader…':`Reading the page… ${p}%`}));
-    if(!text){st.textContent='No text found. Try a sharper, well-lit photo of the page.';return}
+    st.textContent='Photo received.';loadTess().catch(()=>{});
+    const pick=await cropPhoto(await photoCanvas(file));
+    if(!pick){st.textContent='';return}
+    btns.forEach(b=>b.disabled=true);
+    st.textContent='Cleaning up the photo…';await new Promise(r=>setTimeout(r,30));
+    const clean=prepForOCR(pick.canvas,pick.box);
+    const text=await ocrCanvas(clean,pick.whole,p=>{st.textContent=p<0?'Starting the text reader… (the first time downloads about 4 MB)':`Reading the text… ${p}%`});
+    if(!text){st.textContent='Could not read that clearly. Select just the lines you want, hold the phone straight over the page, and use good light.';return}
     ta.value=ta.value.trim()?ta.value.trim()+' '+text:text;
-    st.textContent='Done. Trim the quote down to the part you want to keep.';ta.focus();
+    st.textContent='Done. Check the quote and trim anything extra.';ta.focus();
   }catch(e){st.textContent=(e&&e.message)||'Could not read that photo. Try again with a sharper photo.'}
   finally{btns.forEach(b=>b.disabled=false)}
 }
