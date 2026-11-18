@@ -368,6 +368,12 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             with urllib.request.urlopen('https://www.googleapis.com/books/v1/volumes?' + urllib.parse.urlencode(params), timeout=15) as r:
                 return self.send_json(200, json.loads(r.read()))
+        except urllib.error.HTTPError as e:      # pass Google's reason on (bad key, API not enabled, quota) so it can be fixed
+            try:
+                msg = json.loads(e.read()).get('error', {}).get('message', '')
+            except Exception:
+                msg = ''
+            return self.send_json(502, {'error': 'Google Books refused: ' + (msg or f'HTTP {e.code}').replace(key, '***')})
         except Exception:
             return self.send_json(502, {'error': 'Google Books did not answer'})
 
