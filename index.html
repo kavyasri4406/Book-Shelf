@@ -373,6 +373,7 @@
   .cropbar{display:flex;gap:8px;padding-top:12px}.cropbar button{flex:1;padding:12px 6px;border-radius:999px;background:#2a211c;color:#f2f2f2;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px}
   .cropbar button svg{width:17px;height:17px}.cropbar .y{background:var(--accent);color:var(--accentfg)}
   .cropov .cx{position:absolute;top:14px;left:14px;width:34px;height:34px;border-radius:50%;background:#ffffff1a;color:#fff}
+  .sugg{font-size:13px;color:var(--muted);margin:8px 2px 2px}.sugg b{color:var(--fg)}
 </style>
 </head>
 <body>
@@ -521,19 +522,56 @@ async function olSearch(params,lang,offset=0,limit=40){
   const r=await fetch('https://openlibrary.org/search.json?'+u);if(!r.ok)throw new Error('search failed');
   const j=await r.json();return {total:j.numFound||0,items:(j.docs||[]).map(olDoc)};
 }
+let gProxy=null;   // does our server have a Google Books key? null = not asked yet
 async function gSearch(q,lang){
-  try{const g=(LANGS.find(l=>l[0]===lang)||[])[2];
-    const r=await fetch('https://www.googleapis.com/books/v1/volumes?maxResults=20&printType=books&q='+encodeURIComponent(q)+(g?'&langRestrict='+g:''));
+  const g=(LANGS.find(l=>l[0]===lang)||[])[2]||'';
+  if(gProxy!==false){
+    try{const j=await api('gbooks?q='+encodeURIComponent(q)+'&lang='+g);gProxy=true;return (j.items||[]).map(gItem)}
+    catch(e){if(e.status===404||!e.status)gProxy=false;else return []}
+  }
+  try{const r=await fetch('https://www.googleapis.com/books/v1/volumes?maxResults=20&printType=books&q='+encodeURIComponent(q)+(g?'&langRestrict='+g:''));
     if(!r.ok)return [];return ((await r.json()).items||[]).map(gItem)}
+  catch(e){return []}
+}
+// other ways of writing a search, for when it finds little: Indian-name spellings (oo/u, ee/i, aa/a, w/v)
+// and sound-alike words for typos ("hunting adaline" -> "haunting adeline")
+const TRANSLIT=new Set();
+async function altQueries(q){
+  const out=new Set(),low=q.toLowerCase().trim();
+  [[/oo/g,'u'],[/ee/g,'i'],[/aa/g,'a'],[/w/g,'v'],[/u/g,'oo'],[/th/g,'t']].forEach(([a,b])=>{const v=low.replace(a,b);if(v!==low){out.add(v);TRANSLIT.add(v)}});
+  const words=low.split(/\s+/).filter(Boolean).slice(0,4);
+  const cands=await Promise.all(words.map(w=>w.length<3||/\d/.test(w)||/^(the|and|of|for|in|on|to|an)$/.test(w)?Promise.resolve([w]):
+    api('spell?w='+encodeURIComponent(w)).then(j=>[w].concat((j.words||[]).filter(x=>x!==w)).slice(0,3)).catch(()=>[w])));
+  let combos=[[]];
+  for(const c of cands)combos=combos.flatMap(p=>c.map(x=>p.concat(x))).slice(0,24);
+  combos.map(c=>c.join(' ')).filter(c=>c!==low).sort((a,b)=>lev(a,low)-lev(b,low)).slice(0,8).forEach(c=>out.add(c));
+  return [...out].slice(0,14);
+}
+function lev(a,b){const m=a.length,n=b.length,d=Array.from({length:m+1},(_,i)=>[i]);for(let j=1;j<=n;j++)d[0][j]=j;
+  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));return d[m][n]}
+async function authorHits(q){
+  try{const j=await (await fetch('https://openlibrary.org/search/authors.json?limit=4&q='+encodeURIComponent(q))).json();
+    return (j.docs||[]).filter(a=>a.work_count>=2).slice(0,3).map(a=>({name:a.name,key:a.key,count:a.work_count}))}
   catch(e){return []}
 }
 async function searchBooks(q,lang,offset=0){
   const isbn=q.replace(/[-\s]/g,''),isI=/^\d{9}[\dX]$|^\d{13}$/i.test(isbn);
-  const [ol,g]=await Promise.all([olSearch(isI?{isbn}:{q},lang,offset).catch(()=>({total:0,items:[]})),offset?[]:gSearch(isI?'isbn:'+isbn:q,lang)]);
-  const seen=new Set(ol.items.map(o=>norm(o.title)+'|'+norm(o.author.split(',')[0])));
-  const extra=g.filter(o=>{const k=norm(o.title)+'|'+norm(o.author.split(',')[0]);if(seen.has(k))return false;seen.add(k);return true});
-  if(isI&&ol.items[0]&&!ol.items[0].isbn)ol.items[0].isbn=isbn;
-  return {total:ol.total+extra.length,items:ol.items.concat(extra)};
+  const [ol0,g,authors]=await Promise.all([olSearch(isI?{isbn}:{q},lang,offset).catch(()=>({total:0,items:[]})),offset?[]:gSearch(isI?'isbn:'+isbn:q,lang),offset||isI?[]:authorHits(q)]);
+  let ol=ol0,suggest='';
+  if(!offset&&!isI&&ol.total<5){            // little found: try other spellings and keep the best
+    const alts=await altQueries(q);
+    const tries=await Promise.all(alts.map(a=>olSearch({q:a},lang,0,40).then(r=>({a,r})).catch(()=>null)));
+    // closest spelling to what was typed wins, as long as it finds something; more results only break ties
+    const low=q.toLowerCase().trim();
+    const score=t=>lev(t.a,low)-Math.log10(t.r.total+1)*1.2-(TRANSLIT.has(t.a)?1.5:0);   // close to what was typed, finds plenty, Indian spellings first
+    const best=tries.filter(t=>t&&t.r.total>=3).sort((x,y)=>score(x)-score(y))[0];
+    if(best&&best.r.total>ol.total){ol={total:best.r.total,items:best.r.items.concat(ol.items)};suggest=best.a;
+      if(!authors.length)authors.push(...await authorHits(best.a))}
+  }
+  const seen=new Set(),uniq=o=>{const k=norm(o.title)+'|'+norm(o.author.split(',')[0]);if(seen.has(k))return false;seen.add(k);return true};
+  const items=ol.items.filter(uniq),extra=g.filter(uniq);
+  if(isI&&items[0]&&!items[0].isbn)items[0].isbn=isbn;
+  return {total:ol.total+extra.length,items:items.concat(extra),authors,suggest};
 }
 const inLib=o=>S.books.find(b=>norm(b.title)===norm(o.title)&&(!o.author||!b.author||norm(b.author.split(',')[0].trim().split(' ').pop())===norm(o.author.split(',')[0].trim().split(' ').pop())));
 const metaLine=(o,lang)=>{const l=langsFirst(o.lang,lang);return [o.year,o.pages&&o.pages+' pages',l.length&&l.slice(0,2).map(langName).join(', ')+(l.length>2?` +${l.length-2} more`:''),o.rating&&'★ '+o.rating].filter(Boolean).map(esc).join(' · ')};
@@ -543,7 +581,7 @@ function addFromResult(o,st){
     year:o.year||'',publisher:o.publisher||'',lang:o.lang||[],subjects:o.subjects||[],ratingAvg:o.rating||0,authorKey:o.authorKey||'',work:o.work||''};
   if(o.desc)b.desc=o.desc.slice(0,900);
   S.books.push(b);setStatus(b,st);if(st==='reading')S.currentId=b.id;
-  if(tab==='library'&&!curLib().all)curLib().books.push(b.id);
+  if(!curLib().books.includes(b.id))curLib().books.push(b.id);   // a new book goes on the library that is open, and only there
   save();closeModal();toast('Added to your library');
   if(page&&(page.type==='author'||page.type==='subject'))repaintPage();else render();
 }
@@ -564,7 +602,7 @@ function bookSheet(o){
   });
 }
 function addBook(){
-  let lang=S.searchLang||'',q='',offset=0,items=[],total=0;
+  let lang=S.searchLang||'',q='',typed='',offset=0,items=[],total=0,auths=[],sug='';
   openModal(`<h2>Add a book</h2>
     <div class="row"><input id="q" placeholder="Title, author or ISBN" enterkeyhint="search"><button class="btn y sm" id="go">Search</button></div>
     <div class="srow2"><select id="ql" aria-label="Language">${langOptions(lang)}</select><span id="qn" class="muted"></span></div>
@@ -574,18 +612,21 @@ function addBook(){
       <button class="btn y" id="mad" style="margin-top:12px">Add</button></details>`,()=>{
     const paint=()=>{
       $('#qn').textContent=q?`${total.toLocaleString()} book${total===1?'':'s'} found`:'';
-      $('#res').innerHTML=items.length?items.map((o,i)=>`<div class="res" data-i="${i}"><div class="c">${resCover(o)}</div><div style="flex:1;min-width:0"><b>${esc(o.title)}</b>
+      const head=(sug?`<div class="sugg">Showing results for <b>${esc(sug)}</b> · <button class="lnk" id="asis">search for “${esc(typed)}” instead</button></div>`:'')+(auths.length?`<div class="sec" style="margin:10px 2px 6px">Authors</div><div class="tags">${auths.map((a,i)=>`<button class="tag" data-ah="${i}">${esc(a.name)} · ${a.count} books</button>`).join('')}</div><div class="sec" style="margin:14px 2px 4px">Books</div>`:'');
+      $('#res').innerHTML=head+(items.length?items.map((o,i)=>`<div class="res" data-i="${i}"><div class="c">${resCover(o)}</div><div style="flex:1;min-width:0"><b>${esc(o.title)}</b>
         ${o.author?`<button class="alink" data-au="${i}">${esc(o.author)}</button>`:''}<span class="rmeta">${metaLine(o,lang)}</span></div>${inLib(o)?'<span class="inlib">In library</span>':''}</div>`).join(''):
-        q?'<div class="muted center" style="padding:20px">No results. Try another language, or add it manually.</div>':'';
+        q?'<div class="muted center" style="padding:20px">No books found. Check the spelling, try the author\'s name or another language, or add it manually below.</div>':'');
+      $('#res').querySelectorAll('[data-ah]').forEach(el=>el.onclick=()=>{const a=auths[el.dataset.ah];openAuthor(a.name,a.key)});
+      if($('#asis'))$('#asis').onclick=async()=>{q=typed;sug='';$('#res').innerHTML='<div class="muted center" style="padding:20px">Searching…</div>';const r=await olSearch({q},lang,0).catch(()=>({total:0,items:[]}));items=r.items;total=r.total;paint()};
       $('#more').style.display=items.length&&items.length<total?'block':'none';
       $('#res').querySelectorAll('.res').forEach(el=>el.onclick=()=>bookSheet(items[el.dataset.i]));
       $('#res').querySelectorAll('[data-au]').forEach(el=>el.onclick=e=>{e.stopPropagation();const o=items[el.dataset.au];openAuthor(o.author.split(',')[0].trim(),o.authorKey)});
     };
     const run=async(more)=>{
-      if(!more){q=$('#q').value.trim();if(!q)return;offset=0;items=[];$('#res').innerHTML='<div class="muted center" style="padding:20px">Searching…</div>'}
+      if(!more){q=typed=$('#q').value.trim();if(!q)return;offset=0;items=[];$('#res').innerHTML='<div class="muted center" style="padding:20px">Searching…</div>'}
       else{offset+=40;$('#more').textContent='Loading…'}
       const r=await searchBooks(q,lang,offset);if(!$('#res'))return;
-      items=more?items.concat(r.items):r.items;total=more?total:r.total;$('#more').textContent='Show more books';paint();
+      items=more?items.concat(r.items):r.items;total=more?total:r.total;if(!more){auths=r.authors||[];sug=r.suggest||'';if(sug)q=sug}$('#more').textContent='Show more books';paint();
     };
     $('#go').onclick=()=>run(false);$('#q').onkeydown=e=>{if(e.key==='Enter')run(false)};
     $('#ql').onchange=e=>{lang=S.searchLang=e.target.value;save();if(q)run(false)};
@@ -834,7 +875,9 @@ function pickImage(maxDim,type,cb,cut){
 let edit=false, tool='objects', selBook=null, selRow=0, objCat='Plants & Vases', themeTab='themes', themeCat='All', rowCount=3, drag=null, dragJust=false;
 function ensure(){
   S.custom=S.custom||[];S.upNext=S.upNext||[];
-  S.libs=S.libs&&S.libs.length?S.libs:[{id:'main',name:'My library',all:true}];if(!S.libs.some(l=>l.id===S.activeLib))S.activeLib=S.libs[0].id;applyAppTheme();
+  S.libs=S.libs&&S.libs.length?S.libs:[{id:'main',name:'My library',books:S.books.map(b=>b.id)}];
+  S.libs.forEach(l=>{if(l.all){const inOther=new Set(S.libs.filter(o=>o!==l).flatMap(o=>o.books||[]));l.books=S.books.filter(b=>!inOther.has(b.id)).map(b=>b.id);delete l.all}l.books=l.books||[]});
+  if(!S.libs.some(l=>l.id===S.activeLib))S.activeLib=S.libs[0].id;applyAppTheme();
   const sh=S.shelf=Object.assign({wall:'black',ledge:'black',lights:false,drape:false,rows:3,objects:[],lightColor:'warm',drapeColor:'green',rowH:176,frame:'none',dim:0,lightStyle:'dots',flame:'warm'},S.shelf||{});
   sh.wall=OLD_WALL[sh.wall]||sh.wall;sh.ledge=OLD_LEDGE[sh.ledge]||sh.ledge;
   if(sh.wall==='custom'?!sh.customWall:!WALLS[sh.wall])sh.wall='black';
@@ -867,10 +910,10 @@ function libMenu(){
     <div class="libacts">
       <button data-la="new">${ic('M12 5v14M5 12h14')}New library</button>
       <button data-la="rename">${ic(PEN_I)}Rename</button>
-      ${cur.all?'':`<button data-la="books">${ic(BOOK_I)}Books in this library</button>`}
+      <button data-la="books">${ic(BOOK_I)}Books in this library</button>
       <button data-la="share">${ic(IMG)}Share as image</button>
       <button data-la="deco">${ic(WAND)}Decorate shelf</button>
-      ${cur.all?'':`<button data-la="del" class="danger">${ic('M5 7h14M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3')}Delete library</button>`}
+      ${S.libs.length<2?'':`<button data-la="del" class="danger">${ic('M5 7h14M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3')}Delete library</button>`}
     </div>`,()=>{
     $('#modal').querySelectorAll('[data-lib]').forEach(x=>x.onclick=()=>{switchLib(x.dataset.lib);closeModal();edit=false;render()});
     $('#modal').querySelectorAll('[data-la]').forEach(x=>x.onclick=()=>{const a=x.dataset.la;
@@ -879,7 +922,7 @@ function libMenu(){
       else if(a==='books')libBooksModal(cur);
       else if(a==='share')exportShelfPNG();
       else if(a==='deco'){closeModal();edit=true;tool='move';selBook=null;vLibrary()}
-      else if(a==='del'&&confirm(`Delete the library “${cur.name}”? Its books stay in My library.`)){switchLib('main');S.libs=S.libs.filter(l=>l!==cur);save();closeModal();render();toast('Library deleted')}
+      else if(a==='del'&&confirm(`Delete the library “${cur.name}”? Its books stay in your Books list.`)){const rest=S.libs.filter(l=>l!==cur);switchLib(rest[0].id);S.libs=rest;save();closeModal();render();toast('Library deleted')}
     });
   });
 }
@@ -905,8 +948,8 @@ function libBooksModal(lib){
 }
 function libAdd(){
   const cur=curLib();
-  if(cur.all)return addBook();
-  openModal(`<h2>Add to ${esc(cur.name)}</h2><div class="stack" style="margin:8px 0 0"><button class="btn y" id="fromlib">Choose from your books</button><button class="btn" id="fresh">Find a new book</button></div>`,()=>{
+  if(!S.books.length)return addBook();
+  openModal(`<h2>Add to ${esc(cur.name)}</h2><div class="stack" style="margin:8px 0 0"><button class="btn y" id="fresh">Find a new book</button><button class="btn" id="fromlib">Choose from your books</button></div>`,()=>{
     $('#fromlib').onclick=()=>libBooksModal(cur);$('#fresh').onclick=addBook;
   });
 }
@@ -919,7 +962,7 @@ function vLibrary(){
       `<div class="edhead"><div><b class="serif">${esc(shelfName())}</b><span>${count}</span></div><button class="btn y sm" id="done">Done</button></div>`:
       `<div class="libhead"><button class="libname" id="lsw"><b>${esc(cur.name)}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6"/></svg></b><span>${count}${S.libs.length>1?` · ${S.libs.length} libraries`:''}</span></button>
         <div class="libbtns"><button class="rbtn soft" id="ladd" aria-label="Add books">+</button><button class="rbtn" id="deco" aria-label="Decorate shelf">${ic(WAND)}</button></div></div>
-       ${list.length?'':`<div class="libempty">${cur.all?'Your library is empty.':'This library is empty.'} Tap <b>+</b> to add books.</div>`}`)+
+       ${list.length?'':`<div class="libempty">This library is empty. Tap <b>+</b> to add books.</div>`}`)+
     shelfHTML(list);
   v.querySelectorAll('[data-id]').forEach(el=>el.onclick=e=>{e.stopPropagation();if(dragJust)return;const b=book(el.dataset.id);
     if(edit){selBook=b.id;tool='move';vLibrary()}else openBook3D(b)});
@@ -1615,7 +1658,7 @@ window.addEventListener('appinstalled',()=>{installEvt=null;toast('Installed')})
 // the visible page height (not the keyboard-shrunk one), so the tab bar sits on the real bottom edge
 (()=>{const fit=()=>{document.documentElement.style.setProperty('--app-h',innerHeight+'px');if(scrollY)scrollTo(0,0)};
   fit();addEventListener('resize',fit);addEventListener('orientationchange',()=>setTimeout(fit,300))})();
-const APP_VERSION='14 Nov 2026 · 8';   // shown in Profile, so you can tell which version a phone has
+const APP_VERSION='18 Nov 2026 · 9';   // shown in Profile, so you can tell which version a phone has
 if('serviceWorker' in navigator&&isSecureContext&&!VIEW){
   const hadController=!!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('sw.js').then(r=>r.update()).catch(()=>{});

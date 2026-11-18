@@ -173,12 +173,51 @@ BOOK_FIELDS = ('id', 'title', 'author', 'cover', 'pages', 'face', 'flip', 'mirro
 def public_shelf(data):
     """Only what a shared shelf needs: no notes, sessions, reviews or reading history."""
     books = [{k: b[k] for k in BOOK_FIELDS if k in b} for b in data.get('books', []) if isinstance(b, dict)]
+    active = next((l for l in data.get('libs') or [] if isinstance(l, dict) and l.get('id') == data.get('activeLib')), None)
+    if active and not active.get('all') and isinstance(active.get('books'), list):   # share only the open library's shelf
+        keep = set(active['books'])
+        books = [b for b in books if b.get('id') in keep]
     shelf = dict(data.get('shelf') or {})
     if shelf.get('wall') != 'custom':
         shelf.pop('customWall', None)
     used = {str(o.get('k', ''))[2:] for o in shelf.get('objects', []) if isinstance(o, dict) and str(o.get('k', '')).startswith('c:')}
     custom = [c for c in data.get('custom', []) if isinstance(c, dict) and c.get('id') in used]
     return {'books': books, 'shelf': shelf, 'custom': custom}
+
+
+SPELL_CACHE = {}
+
+
+def edit_distance(a, b):
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def spell(word):
+    """Real words close to `word`, by spelling and by sound (Datamuse), closest first. Cached; [] on failure."""
+    word = re.sub(r'[^a-z]', '', word.lower())[:30]
+    if len(word) < 3:
+        return []
+    if word not in SPELL_CACHE:
+        found = []
+        for kind in ('sp', 'sl'):          # spelled like, sounds like
+            try:
+                with urllib.request.urlopen(f'https://api.datamuse.com/words?max=8&{kind}=' + word, timeout=8) as r:
+                    found += [w['word'] for w in json.loads(r.read()) if w['word'].isalpha()]
+            except Exception:
+                pass
+        if not found:
+            return []
+        ranked = sorted(dict.fromkeys(w for w in found if w != word), key=lambda w: edit_distance(w, word))
+        SPELL_CACHE[word] = [w for w in ranked if edit_distance(w, word) <= max(2, len(word) // 3)][:3]
+        if len(SPELL_CACHE) > 5000:
+            SPELL_CACHE.clear()
+    return SPELL_CACHE[word]
 
 
 def token_hash(token):
@@ -267,6 +306,10 @@ class Handler(SimpleHTTPRequestHandler):
                         return self.send_json(404, {'error': 'This shelf is not shared any more'})
                     return self.send_json(200, {'name': row[0].split('@')[0],      # never show the owner's email
                                                 'data': public_shelf(json.loads(row[1]) if row[1] else {})})
+                if (method, name) == ('GET', 'spell'):
+                    return self.send_json(200, {'words': spell(urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get('w', [''])[0])})
+                if (method, name) == ('GET', 'gbooks'):
+                    return self.gbooks()
                 if (method, name) == ('GET', 'spines'):
                     q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                     keys = [k for k in (q.get('keys', [''])[0]).split(',') if SPINE_KEY.match(k)][:80]
@@ -311,6 +354,22 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(404, {'error': 'Unknown request'})
         finally:
             con.close()
+
+    def gbooks(self):
+        """Google Books through the server with your own key (GOOGLE_BOOKS_KEY), since keyless requests are often refused."""
+        key = os.environ.get('GOOGLE_BOOKS_KEY', '').strip()
+        if not key:
+            return self.send_json(404, {'error': 'Google Books is not set up on this server'})
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        params = {'q': q.get('q', [''])[0][:200], 'maxResults': 20, 'printType': 'books', 'key': key}
+        lang = q.get('lang', [''])[0][:5]
+        if re.fullmatch(r'[a-z]{2}', lang):
+            params['langRestrict'] = lang
+        try:
+            with urllib.request.urlopen('https://www.googleapis.com/books/v1/volumes?' + urllib.parse.urlencode(params), timeout=15) as r:
+                return self.send_json(200, json.loads(r.read()))
+        except Exception:
+            return self.send_json(502, {'error': 'Google Books did not answer'})
 
     def sign(self, con, mode, body):
         username = str(body.get('username') or '').strip().lower()
