@@ -231,7 +231,6 @@
   .rst{color:var(--yellow);font-size:13px;letter-spacing:1px}.rst i{color:#4a4a50;font-style:normal}
   .grid .rst{font-size:10px}
   .bk-info .rst{display:block;margin-top:4px;font-size:15px}
-  .brev{font:italic 8px/1.4 Georgia,serif;margin:0 0 6px;color:#f3e6c8}
   .upnext{margin:0 0 12px;border:1.5px dashed var(--line);border-radius:18px;padding:14px}
   .un-head{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}.un-head b{font:700 20px Georgia,serif}.un-head span{font-size:12px;color:var(--muted)}
   .un-row{display:flex;gap:12px;align-items:center}.un-slots{display:flex;gap:6px;flex:none}
@@ -1328,7 +1327,7 @@ function openBook3D(b,ro){
   ov.innerHTML=`<button class="x" id="bx">✕</button>
     <div class="stage" id="stage"><div class="book3d" id="b3" style="transform:rotateY(90deg) scale(.55)">
       <div class="b-front">${coverHTML(b)}</div>
-      <div class="b-back" style="${backBg(b)}"><b>${esc(b.title)}</b>${b.review?`<p class="brev">“${esc(b.review)}”</p>`:''}<p id="bdesc" data-id="${b.id}">${esc(b.desc||'')}</p>${b.isbn?`<div class="barcode"><i></i>${esc(b.isbn)}</div>`:''}</div>
+      <div class="b-back" style="${backBg(b)}"><b>${esc(b.title)}</b><p id="bdesc" data-id="${b.id}">${esc(b.desc||'')}</p>${b.isbn?`<div class="barcode"><i></i>${esc(b.isbn)}</div>`:''}</div>
       <div class="b-spine" style="${spineBg(b)}"><span class="st">${esc(b.title.slice(0,30))}</span><span class="sa">${esc(lastName(b).slice(0,12))}</span></div>
       <div class="b-pages"></div><div class="b-top"></div><div class="b-bot"></div>
     </div></div>
@@ -1726,7 +1725,7 @@ window.addEventListener('appinstalled',()=>{installEvt=null;toast('Installed')})
 // the visible page height (not the keyboard-shrunk one), so the tab bar sits on the real bottom edge
 (()=>{const fit=()=>{document.documentElement.style.setProperty('--app-h',innerHeight+'px');if(scrollY)scrollTo(0,0)};
   fit();addEventListener('resize',fit);addEventListener('orientationchange',()=>setTimeout(fit,300))})();
-const APP_VERSION='18 Nov 2026 · 11';   // shown in Profile, so you can tell which version a phone has
+const APP_VERSION='18 Nov 2026 · 12';   // shown in Profile, so you can tell which version a phone has
 if('serviceWorker' in navigator&&isSecureContext&&!VIEW){
   const hadController=!!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('sw.js').then(r=>r.update()).catch(()=>{});
