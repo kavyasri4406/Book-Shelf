@@ -93,6 +93,10 @@
   #app.editing .case [data-id],#app.editing .deco{cursor:grab}
   .ghost{z-index:60;pointer-events:none;opacity:.95;transform:scale(1.08) rotate(-4deg)!important;box-shadow:0 14px 26px #000c;cursor:grabbing}
   .spine .st{font-style:italic}
+  .rtimes{display:inline-block;margin-top:6px;font-size:12px;padding:3px 10px;border-radius:12px;background:#ffffff14;color:var(--muted)}
+  .rdrow{display:flex;justify-content:space-between;gap:10px;padding:10px 4px;border-bottom:1px solid #ffffff12}.rdrow:last-child{border-bottom:0}
+  .rdrow b{display:block;font-size:13px}.rdrow span{font-size:12px;color:var(--muted)}.rdrow p{margin:6px 0 0;font:italic 12px/1.4 Georgia,serif;opacity:.85}
+  .rdrow em{font-style:normal;color:#f2b632;font-size:12px;white-space:nowrap}.rdx{background:none;border:0;color:var(--muted);cursor:pointer;font-size:12px;margin-left:6px}
   .spine.pl{justify-content:space-between;padding:9px 0 8px;font:600 10.5px "Arial Narrow","Roboto Condensed","Helvetica Neue",Arial,sans-serif;letter-spacing:.7px;text-transform:uppercase;text-shadow:none}
   .spine.pl .st{font-style:normal;overflow:hidden;text-overflow:ellipsis;max-height:70%;white-space:normal;line-height:1.05;text-align:start}
   .spine.pl .sb{font-size:8px;letter-spacing:1.2px;font-weight:500;overflow:hidden;text-overflow:ellipsis;max-height:30%;opacity:.92;flex:none}
@@ -433,6 +437,19 @@ function streak(){
   while(days.has(dkey(d))){n++;d.setDate(d.getDate()-1)}
   return n;
 }
+// rereads: each finished read is kept in b.reads (dates, rating, review) when the book is started again
+const timesRead=b=>(b.reads||[]).length+(b.status==='finished'?1:0);
+const nth=n=>n+(n%100>10&&n%100<14?'th':['th','st','nd','rd'][n%10]||'th');
+function startReread(b){
+  const mine=S.sessions.filter(s=>s.bookId===b.id).map(s=>s.date).sort();
+  const prev=(b.reads||[]).length?b.reads[b.reads.length-1].finished:'';
+  const fin=b.finished||today();let started=b.started||mine.find(d=>d>prev)||(!prev&&b.added)||'';
+  if(started>fin)started='';
+  (b.reads=b.reads||[]).push({started,finished:fin,rating:b.rating||0,rate:Object.assign({},b.rate||{}),review:b.review||'',pages:b.pages||0});
+  b.status='reading';b.current=0;b.started=today();b.review='';delete b.finished;S.currentId=b.id;   // a fresh review for this read; the old one stays in the history
+}
+// every finished read, rereads included, as [{b,date}]
+const allFinishes=()=>S.books.flatMap(b=>(b.reads||[]).map(r=>({b,date:r.finished||''})).concat(b.status==='finished'&&b.finished?[{b,date:b.finished}]:[]));
 function setStatus(b,st){
   b.status=st;
   if(st==='finished'){b.finished=today();if(b.pages)b.current=b.pages}
@@ -1395,7 +1412,7 @@ function vStats(){
 function sStreak(){
   const n=streak(),best=bestStreak(),now=new Date(),y=now.getFullYear(),m=now.getMonth(),dim=new Date(y,m+1,0).getDate(),days=new Set(S.sessions.map(s=>s.date)),lit=days.has(today());
   const first=new Date(y,m,1).getDay();
-  const done=S.books.filter(b=>b.status==='finished'&&String(b.finished||'').startsWith(y)).length,g=S.goal||0,p=g?Math.min(1,done/g):0;
+  const done=allFinishes().filter(f=>f.date.startsWith(y)).length,g=S.goal||0,p=g?Math.min(1,done/g):0;
   $('#sv').innerHTML=`<div class="streak"><div class="flamebox${lit?'':' out'}">${flameSVG('fs')}<div class="fnum">${n}</div></div>
       <div class="l"><b>${n} day${n===1?'':'s'}</b> reading streak · best ${best}<br>${lit?"You've read today. Keep the fire going!":n?'Read today to keep it alive.':'Read today to light the fire.'}</div></div>
     <div class="goal"><svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="34" fill="none" stroke="var(--line)" stroke-width="8"/><circle cx="40" cy="40" r="34" fill="none" stroke="var(--yellow)" stroke-width="8" stroke-linecap="round" ${p?'':'stroke-opacity="0"'} stroke-dasharray="${(p*213.6).toFixed(1)} 214" transform="rotate(-90 40 40)"/><text x="40" y="46" text-anchor="middle" fill="currentColor" font-size="17" font-weight="700">${g?Math.round(p*100)+'%':'–'}</text></svg>
@@ -1425,7 +1442,7 @@ function sChart(range){
   buckets.forEach(b=>b.p=inR.filter(s=>filter(s)===b.k).reduce((a,s)=>a+s.pages,0));
   const max=Math.max(1,...buckets.map(b=>b.p));
   const pages=inR.reduce((a,s)=>a+s.pages,0),mins=inR.reduce((a,s)=>a+s.minutes,0);
-  const fin=S.books.filter(b=>b.status==='finished'&&b.finished&&(range==='all'||(range==='year'?b.finished.slice(0,4)===String(now.getFullYear()):b.finished>=buckets[0].k))).length;
+  const fin=allFinishes().filter(f=>f.date&&(range==='all'||(range==='year'?f.date.slice(0,4)===String(now.getFullYear()):f.date>=buckets[0].k))).length;
   const active=new Set(inR.map(s=>s.date)).size;
   $('#sv').innerHTML=`<div class="tiles"><div class="tile"><b>${pages}</b><span>pages read</span></div><div class="tile"><b>${Math.floor(mins/60)}h ${mins%60}m</b><span>time reading</span></div><div class="tile"><b>${fin}</b><span>books finished</span></div><div class="tile"><b>${active?Math.round(pages/active):0}</b><span>pages / reading day</span></div></div>
     <div class="muted" style="font-size:12px">Pages ${range==='month'?'per day (last 30 days)':'per month'}</div>
@@ -1513,7 +1530,7 @@ function goalModal(){
 }
 function sWrap(){
   const y=String(new Date().getFullYear());
-  const fin=S.books.filter(b=>b.status==='finished'&&String(b.finished||'').startsWith(y));
+  const fin=allFinishes().filter(f=>f.date.startsWith(y)).map(f=>f.b);
   const ss=S.sessions.filter(s=>s.date.startsWith(y));
   const pages=ss.reduce((a,s)=>a+(s.pages||0),0),mins=ss.reduce((a,s)=>a+(s.minutes||0),0),days=new Set(ss.map(s=>s.date));
   const months=Array(12).fill(0);ss.forEach(s=>months[+s.date.slice(5,7)-1]+=s.pages||0);
@@ -1725,7 +1742,7 @@ window.addEventListener('appinstalled',()=>{installEvt=null;toast('Installed')})
 // the visible page height (not the keyboard-shrunk one), so the tab bar sits on the real bottom edge
 (()=>{const fit=()=>{document.documentElement.style.setProperty('--app-h',innerHeight+'px');if(scrollY)scrollTo(0,0)};
   fit();addEventListener('resize',fit);addEventListener('orientationchange',()=>setTimeout(fit,300))})();
-const APP_VERSION='18 Nov 2026 · 12';   // shown in Profile, so you can tell which version a phone has
+const APP_VERSION='18 Nov 2026 · 13';   // shown in Profile, so you can tell which version a phone has
 if('serviceWorker' in navigator&&isSecureContext&&!VIEW){
   const hadController=!!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('sw.js').then(r=>r.update()).catch(()=>{});
@@ -1947,7 +1964,7 @@ const HOME_I='M4 11l8-7 8 7v9h-5v-6h-6v6H4z', LIST_I='M8 6h12M8 12h12M8 18h12M4 
 const TABS=[['home',ic(HOME_I),'Home'],['books',ic(LIST_I),'Books'],['library',ic(BOOK_I),'Library'],['stats',ic(BARS_I),'Stats'],['profile',ic(USER_I),'Profile']];
 const profileName=()=>S.name||(auth?auth.username.split('@')[0]:'Reader');
 const thisYear=()=>String(new Date().getFullYear());
-const finishedThisYear=()=>S.books.filter(b=>b.status==='finished'&&String(b.finished||'').startsWith(thisYear()));
+const finishedThisYear=()=>allFinishes().filter(f=>f.date.startsWith(thisYear())).map(f=>f.b);
 function openBookPage(b){closeModal();$('#bookov').classList.remove('show');$('#bookov').innerHTML='';edit=false;page={type:'book',id:b.id,sub:'review',prev:page&&page.type!=='book'?page:null};render()}
 function repaintPage(){const v=$('#view'),y=v.scrollTop;vPage();v.scrollTop=y}
 function vPage(){
@@ -2083,6 +2100,13 @@ const RATE=[['stars','Stars','#f2b632',['Not for me','It was okay','Liked it','L
   ['world','World','#4a9be8',['Thin','Sketchy','Solid','Rich','Lived-in']],
   ['tears','Tears','#5ab8f0',['Dry-eyed','Misty','A few tears','Sobbing','Devastating']]];
 const ricon=k=>k==='world'?`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>`:`<svg viewBox="0 0 24 24"><path d="${RPATH[k]}" fill="currentColor"/></svg>`;
+function readsHTML(b){
+  const rs=b.reads||[];if(!rs.length)return '';
+  const fd=d=>d?new Date(d+'T12:00').toLocaleDateString('en',{day:'numeric',month:'short',year:'numeric'}):'';
+  const now=b.status==='finished'?`<div class="rdrow"><div><b>${nth(rs.length+1)} read · latest</b><span>${[fd(b.started),fd(b.finished)].filter(Boolean).join(' – ')}</span></div><em>${'★'.repeat(b.rating||0)}</em></div>`:
+    b.status==='reading'?`<div class="rdrow"><div><b>${nth(rs.length+1)} read · reading now</b><span>${b.started?'Started '+fd(b.started):''}</span></div></div>`:'';
+  return `<div class="sec">Your reads · ${rs.length+(b.status==='finished'?1:0)} finished</div><div class="rcard">${now}${rs.map((r,i)=>({r,i})).reverse().map(({r,i})=>`<div class="rdrow"><div><b>${nth(i+1)} read</b><span>${[fd(r.started),fd(r.finished)].filter(Boolean).join(' – ')}</span>${r.review?`<p>“${esc(r.review)}”</p>`:''}</div><div style="text-align:right"><em>${'★'.repeat(r.rating||0)}</em><button class="rdx" data-rd="${i}" aria-label="Remove this read">✕</button></div></div>`).join('')}</div>`;
+}
 const rval=(b,k)=>k==='stars'?b.rating||0:(b.rate||{})[k]||0;
 const NB=[['theories','Theories','Add theory'],['scenes','Scenes','Add scene'],['private','Private notes','Add private note']];
 const BQUOTES=['Books are the quietest and most constant of friends.','A reader lives a thousand lives before he dies.','There is no friend as loyal as a book.','Read slowly. The page will wait for you.'];
@@ -2108,7 +2132,7 @@ function vBook(b){
   let body;
   if(sub==='review')body=`<div class="sec">Rating</div><div class="rcard">${RATE.map(([k,l,c,w])=>{const v=rval(b,k);return `<div class="rrow"><div><b>${l}</b><i data-rw="${k}">${v?w[v-1]:''}</i></div><div class="ricons" style="--rc:${c}">${[1,2,3,4,5].map(i=>`<button data-rk="${k}" data-rv="${i}" class="${i<=v?'on':''}" aria-label="${l} ${i}">${ricon(k)}</button>`).join('')}</div></div>`}).join('')}</div>
       <div class="sec">Your review</div><div class="rcard" style="padding:12px"><textarea id="rvw" rows="4" placeholder="What did you think of it?">${esc(b.review||'')}</textarea>
-      <div style="text-align:right;margin-top:8px"><button class="fchip2${b.spoilers?' on':''}" id="spo">Contains spoilers</button></div></div>`;
+      <div style="text-align:right;margin-top:8px"><button class="fchip2${b.spoilers?' on':''}" id="spo">Contains spoilers</button></div></div>${readsHTML(b)}`;
   else if(sub==='notebook')body=`<div class="sec">Summary</div><textarea id="nsum" rows="3" placeholder="Summary of the plot">${esc(nb.summary||'')}</textarea>
       ${cards('characters','Characters')}${cards('places','Places')}
       <div class="sec">Quotes</div>${quotes.map(n=>`<button class="nbitem q" data-q="${n.id}">${esc(n.quote||n.thought)}${n.page?`<small>p. ${esc(n.page)}</small>`:''}</button>`).join('')}<button class="nbadd" id="addq">+ Add quote</button>
@@ -2120,20 +2144,24 @@ function vBook(b){
       ${b.author?`<button class="nbitem" id="moreau" style="margin-top:12px;display:flex;justify-content:space-between"><span>More by ${esc(b.author.split(',')[0])}</span><span>›</span></button>`:''}`;
   const v=$('#view');
   v.innerHTML=`<div class="phead"><button class="back" id="pb" aria-label="Back">‹</button><span></span><button class="back" id="pm" aria-label="Edit details">⋯</button></div>
-    <div class="bp-cover">${coverHTML(b)}</div><div class="center"><div class="bname serif" style="font-size:20px">${esc(b.title)}</div>${b.author?`<button class="alink big" id="bau">${esc(b.author)}</button>`:''}</div>
+    <div class="bp-cover">${coverHTML(b)}</div><div class="center"><div class="bname serif" style="font-size:20px">${esc(b.title)}</div>${b.author?`<button class="alink big" id="bau">${esc(b.author)}</button>`:''}${timesRead(b)>1||(b.reads||[]).length?`<div class="rtimes">${b.status==='finished'?`Read ${timesRead(b)} times`:b.status==='reading'?`Reading for the ${nth((b.reads||[]).length+1)} time`:`Read ${b.reads.length} time${b.reads.length>1?'s':''} before`}</div>`:''}</div>
     <div class="fchips" style="justify-content:center;margin:12px 0 6px">${[['want','To be read'],['reading','Reading'],['finished','Finished']].map(([k,l])=>`<button class="fchip2${b.status===k?' on':''}" data-st="${k}">${l}</button>`).join('')}</div>
     <div class="bp-bar"><em style="width:${pct(b)}%"></em></div><div class="prog center">${pct(b)}% · ${b.current} / ${b.pages||'?'}</div>
     <div class="bp-stats"><div><b>${bookStreak(b)}</b><span>days in a row</span></div><div><b>${mins>=60?Math.floor(mins/60)+'h '+mins%60+'m':mins+'m'}</b><span>with this book</span></div><div><b>${ss.length}</b><span>sessions</span></div></div>
     <div class="bp-q">${BQUOTES[hash(b.title)%BQUOTES.length]}</div>
     <button class="btn y" id="bgo">${S.timer&&S.timer.bookId===b.id?'Session running':'Start session'}</button>
-    <button class="btn" id="blog" style="margin-top:8px">Log pages</button>
+    <button class="btn" id="blog" style="margin-top:8px">Log pages</button>${b.status==='finished'?`<button class="btn" id="bre" style="margin-top:8px">↻ Read again</button>`:''}
     <div class="seg" style="margin-top:16px">${tabs.map(([k,l])=>`<button data-sub="${k}" class="${sub===k?'on':''}">${l}</button>`).join('')}</div>${body}`;
   $('#pb').onclick=()=>{page=page.prev||null;render()};
   $('#pm').onclick=()=>detailsModal(b);
   if($('#bau'))$('#bau').onclick=()=>openAuthor(b.author.split(',')[0].trim(),b.authorKey);
   $('#bgo').onclick=()=>{if(b.status!=='reading')setStatus(b,'reading');S.currentId=b.id;save();timerModal(b)};
   $('#blog').onclick=()=>logModal(b);
-  v.querySelectorAll('[data-st]').forEach(x=>x.onclick=()=>{if(b.status!==x.dataset.st){setStatus(b,x.dataset.st);if(x.dataset.st==='reading')S.currentId=b.id;save()}repaintPage()});
+  if($('#bre'))$('#bre').onclick=()=>{startReread(b);save();toast(`Started your ${nth(b.reads.length+1)} read. Your earlier read is kept in Your reads.`);repaintPage()};
+  v.querySelectorAll('[data-rd]').forEach(x=>x.onclick=()=>{if(confirm('Remove this past read from the history?')){b.reads.splice(+x.dataset.rd,1);if(!b.reads.length)delete b.reads;save();repaintPage()}});
+  v.querySelectorAll('[data-st]').forEach(x=>x.onclick=()=>{
+    if(b.status==='finished'&&x.dataset.st==='reading'&&confirm('Read this book again? Your finished read, with its dates, rating and review, is kept.\n\nPress Cancel to just mark it as Reading.')){startReread(b);save();repaintPage();return}
+    if(b.status!==x.dataset.st){setStatus(b,x.dataset.st);if(x.dataset.st==='reading')S.currentId=b.id;save()}repaintPage()});
   v.querySelectorAll('[data-sub]').forEach(x=>x.onclick=()=>{page.sub=x.dataset.sub;repaintPage()});
   if(sub==='review'){
     v.querySelectorAll('[data-rk]').forEach(x=>x.onclick=()=>{
