@@ -93,6 +93,13 @@
   #app.editing .case [data-id],#app.editing .deco{cursor:grab}
   .ghost{z-index:60;pointer-events:none;opacity:.95;transform:scale(1.08) rotate(-4deg)!important;box-shadow:0 14px 26px #000c;cursor:grabbing}
   .spine .st{font-style:italic}
+  .spine.pl{justify-content:space-between;padding:9px 0 8px;font:600 10.5px "Arial Narrow","Roboto Condensed","Helvetica Neue",Arial,sans-serif;letter-spacing:.7px;text-transform:uppercase;text-shadow:none}
+  .spine.pl .st{font-style:normal;overflow:hidden;text-overflow:ellipsis;max-height:70%;white-space:normal;line-height:1.05;text-align:start}
+  .spine.pl .sb{font-size:8px;letter-spacing:1.2px;font-weight:500;overflow:hidden;text-overflow:ellipsis;max-height:30%;opacity:.92;flex:none}
+  .flat.pl{font:600 9px "Arial Narrow","Helvetica Neue",Arial,sans-serif;letter-spacing:.6px;text-transform:uppercase;text-shadow:none;justify-content:space-between;gap:6px}
+  .flat.pl .sb{font-size:7px;letter-spacing:1px;font-weight:500;opacity:.9}
+  .cpk{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:6px}.cpk button{width:26px;height:26px;border-radius:50%;border:2px solid #fff3;padding:0;cursor:pointer}.cpk button.on{border-color:#fff;box-shadow:0 0 0 2px #0008}
+  .cpk button.cv{width:auto;border-radius:14px;padding:0 10px;font-size:11px;color:inherit;background:#ffffff14}.cpk label{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer}.cpk input[type=color]{width:30px;height:28px;border:0;padding:0;background:none;cursor:pointer}
   .sa{position:absolute;bottom:5px;left:0;right:0;text-align:center;writing-mode:horizontal-tb;font:700 6.5px Georgia,serif;letter-spacing:0;overflow:hidden;white-space:nowrap;opacity:.9}
   .b-spine .sa{font-size:8px;bottom:10px}.b-spine .st{font-style:italic;font-size:13px}
   #app.editing #view{padding-bottom:300px}
@@ -479,10 +486,11 @@ function detailsModal(b){
     <label>Your rating</label>${starsHTML(b.rating||0)}
     <label>Review</label><textarea id="rv" rows="3" placeholder="What did you think?">${esc(b.review||'')}</textarea>
     <label>Cover URL</label><input id="cv" value="${esc(b.cover||'')}">
-    <label>Spine on the shelf${b.spineShared?' · photo shared by another reader':''}</label><div class="row"><button type="button" class="btn sm" id="spp">${b.spineImg?'Change spine photo':'Add a photo of the real spine'}</button>${b.spineImg?'<button type="button" class="btn sm r" id="spx">Remove</button>':''}</div>
+    <label>Spine on the shelf${b.spineShared?' · photo shared by another reader':''}</label><div id="dcp">${colourPicker(b)}</div><div class="row" style="margin-top:8px"><button type="button" class="btn sm" id="spp">${b.spineImg?'Change spine photo':'Add a photo of the real spine'}</button>${b.spineImg?'<button type="button" class="btn sm r" id="spx">Remove</button>':''}</div>
     <div class="row" style="margin-top:16px"><button class="btn r" id="del">Delete</button><button class="btn y" id="s">Save</button></div>`,()=>{
     $('#st').value=b.status;let rate=b.rating||0;bindStars($('#modal .stars'),v=>rate=v);
     $('#spp').onclick=()=>pickSpinePhoto(b,()=>{closeModal();render()});
+    const rebind=()=>{$('#dcp').innerHTML=colourPicker(b);bindColourPicker($('#dcp'),b,()=>{rebind();toast('Spine colour saved')})};rebind();
     if($('#spx'))$('#spx').onclick=()=>{if(b.spineShared)b.spineHidden=true;delete b.spineImg;delete b.spineShared;save();closeModal();render();toast('Spine photo removed')};
     $('#s').onclick=()=>{b.rating=rate;b.review=$('#rv').value.trim();b.title=$('#t').value.trim()||b.title;b.author=$('#a').value.trim();b.pages=+$('#p').value||0;b.current=+$('#cp').value||0;b.cover=$('#cv').value.trim();
       if($('#st').value!==b.status)setStatus(b,$('#st').value);save();closeModal();render()};
@@ -897,7 +905,8 @@ function ensure(){
   S.libs=S.libs&&S.libs.length?S.libs:[{id:'main',name:'My library',books:S.books.map(b=>b.id)}];
   S.libs.forEach(l=>{if(l.all){const inOther=new Set(S.libs.filter(o=>o!==l).flatMap(o=>o.books||[]));l.books=S.books.filter(b=>!inOther.has(b.id)).map(b=>b.id);delete l.all}l.books=l.books||[]});
   if(!S.libs.some(l=>l.id===S.activeLib))S.activeLib=S.libs[0].id;applyAppTheme();
-  const sh=S.shelf=Object.assign({wall:'black',ledge:'black',lights:false,drape:false,rows:3,objects:[],lightColor:'warm',drapeColor:'green',rowH:176,frame:'none',dim:0,lightStyle:'dots',flame:'warm',spineStyle:'art',bookFace:'spines'},S.shelf||{});
+  const sh=S.shelf=Object.assign({wall:'black',ledge:'black',lights:false,drape:false,rows:3,objects:[],lightColor:'warm',drapeColor:'green',rowH:176,frame:'none',dim:0,lightStyle:'dots',flame:'warm',spineStyle:'plain',bookFace:'spines'},S.shelf||{});
+  if(!sh.spv2){sh.spv2=1;sh.spineStyle='plain'}   // spines look like the real book: its colour, title and author
   sh.wall=OLD_WALL[sh.wall]||sh.wall;sh.ledge=OLD_LEDGE[sh.ledge]||sh.ledge;
   if(sh.wall==='custom'?!sh.customWall:!WALLS[sh.wall])sh.wall='black';
   if(!LEDGES[sh.ledge])sh.ledge='black';
@@ -995,6 +1004,7 @@ function vLibrary(){
   const c=$('.case');
   if(c&&edit){c.onpointerdown=dragDown;c.ondragstart=c.oncontextmenu=e=>e.preventDefault()}
   renderEditUI();
+  fitSpines();
   tintSpines(list);
 }
 
@@ -1046,7 +1056,36 @@ async function tintSpines(list){
   if(tab==='library'&&libView==='shelf'&&!drag)vLibrary();
 }
 const cssu=u=>esc(String(u).replace(/["'()\\\s]/g,c=>'%'+c.charCodeAt(0).toString(16)));
+const hex2rgb=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)),rgb2hex=c=>'#'+c.map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
+const inkFor=c=>.299*c[0]+.587*c[1]+.114*c[2]>150?[30,26,22]:[250,246,238];
+// the colours of a plain spine: the one the reader picked, else the cover's own colour
+function spineCols(b){
+  if(b.spineColor){const bg=hex2rgb(b.spineColor);return {bg,fg:inkFor(bg)}}
+  if(b.sp)return b.sp;const bg=hex2rgb(pal(b.title));return {bg,fg:inkFor(bg)};
+}
+const isPlain=b=>!!b.spineColor||(S.shelf.spineStyle||'plain')==='plain'&&!b.spineImg;
+const SPINE_SW=['#111111','#f3ead8','#a8d5a2','#c9a96e','#b3262e','#6d1f2b','#1f2f5c','#3c7bd4','#2f5d3a','#e9a6b8','#5b3a7a','#7a7a7a'];
+function colourPicker(b){
+  const cur=b.spineColor||'';
+  return `<div class="cpk"><button class="cv${cur?'':' on'}" data-spc="">Cover colour</button>${SPINE_SW.map(c=>`<button class="${cur===c?'on':''}" data-spc="${c}" style="background:${c}" aria-label="${c}"></button>`).join('')}
+    <label><input type="color" data-spcin value="${cur||rgb2hex(spineCols(b).bg)}">Any colour</label></div>`;
+}
+function bindColourPicker(root,b,after){
+  const setc=v=>{if(v){b.spineColor=v;if(b.spineImg){if(b.spineShared)b.spineHidden=true;delete b.spineImg;delete b.spineShared}}else delete b.spineColor;save();after()};
+  root.querySelectorAll('[data-spc]').forEach(el=>el.onclick=e=>{e.preventDefault();e.stopPropagation();setc(el.dataset.spc)});
+  root.querySelectorAll('[data-spcin]').forEach(el=>{el.onclick=e=>e.stopPropagation();el.onchange=()=>setc(el.value)});
+}
+// shrink each plain spine's title until all of it fits; a long author name falls back to the surname
+function fitSpines(){
+  document.querySelectorAll('.spine.pl').forEach(sp=>{
+    const st=sp.querySelector('.st'),sb=sp.querySelector('.sb');
+    if(sb&&sb.scrollHeight>sb.clientHeight+1){const b=book(sp.dataset.id);if(b)sb.textContent=lastName(b)}
+    let f=10.5;while((st.scrollHeight>st.clientHeight+1||st.scrollWidth>sp.clientWidth-3)&&f>7){f-=.5;st.style.fontSize=f+'px'}
+  });
+}
 function spineBg(b,flat){
+  if(isPlain(b)){const c=spineCols(b);
+    return `background:linear-gradient(${flat?'':'to right,'}rgba(0,0,0,.18),rgba(255,255,255,.07) 30%,rgba(0,0,0,0) 55%,rgba(0,0,0,.2)),rgb(${c.bg});color:rgb(${c.fg});text-shadow:none;`}
   if(b.spineImg&&!flat)return `background:#222 url(${b.spineImg}) center/100% 100% no-repeat;color:transparent;text-shadow:none;`;
   if(b.cover&&(S.shelf.spineStyle||'art')==='art'){   // the cover's own artwork, as on the real book's spine
     const fill=b.sp?`rgb(${b.sp.bg})`:'#2a2a2e';
@@ -1094,11 +1133,12 @@ function shelfHTML(list){
   const tf=b=>{const t=(b.flip?'rotate(180deg) ':'')+(b.mirror?'scaleX(-1)':'');return t?`transform:${t};`:''};
   const sel=b=>edit&&selBook===b.id?' sel':'';
   const unit=u=>{
-    if(u.pile)return `<div class="stackcol">${u.books.map(b=>`<div class="flat${sel(b)}" data-id="${b.id}" style="width:${96+hash(b.title)%22}px;height:${Math.max(16,spineW(b)-6)}px;${tf(b)}${spineBg(b,true)}">${esc(b.title.slice(0,18))}</div>`).join('')}</div>`;
+    if(u.pile)return `<div class="stackcol">${u.books.map(b=>`<div class="flat${isPlain(b)?' pl':''}${sel(b)}" data-id="${b.id}" style="width:${96+hash(b.title)%22}px;height:${Math.max(16,spineW(b)-6)}px;${tf(b)}${spineBg(b,true)}">${isPlain(b)?`<span>${esc(b.title.slice(0,18))}</span><span class="sb">${esc(lastName(b).slice(0,10))}</span>`:esc(b.title.slice(0,18))}</div>`).join('')}</div>`;
     const b=u.b,h=bookH(b);
     if(u.f==='cover')return `<div class="cov${sel(b)}" data-id="${b.id}" style="width:${Math.round(h*.66)}px;height:${h}px;${tf(b)}">${coverHTML(b)}</div>`;
     if(u.f==='edge')return `<div class="edge${sel(b)}" data-id="${b.id}" title="${esc(b.title)}" style="width:${spineW(b)}px;height:${h}px;${tf(b)}"></div>`;
-    return `<div class="spine${sel(b)}" data-id="${b.id}" title="${esc(b.title)}" style="width:${spineW(b)}px;height:${h}px;${tf(b)}${spineBg(b)}"><span class="st">${esc(b.title.slice(0,20))}</span><span class="sa">${esc(lastName(b).slice(0,9))}</span></div>`;
+    const pl=isPlain(b);
+    return `<div class="spine${pl?' pl':''}${sel(b)}" data-id="${b.id}" title="${esc(b.title)}" style="width:${spineW(b)}px;height:${h}px;${tf(b)}${spineBg(b)}">${pl?`<span class="st">${esc(b.title)}</span><span class="sb">${esc((b.author||'').split(',')[0].trim())}</span>`:`<span class="st">${esc(b.title.slice(0,20))}</span><span class="sa">${esc(lastName(b).slice(0,9))}</span>`}</div>`;
   };
   const lc=LIGHTC[sh.lightColor]||LIGHTC.warm, fl=FLAMES[sh.flame]||FLAMES.warm, dim=sh.dim?`linear-gradient(rgba(0,0,0,${sh.dim}),rgba(0,0,0,${sh.dim})),`:'';
   return `<div class="case" style="background:${dim}${wallCss(sh.wall)};border:${FRAMES[sh.frame]||'0'};--f1:${fl[0]};--f2:${fl[1]};--f3:${fl[2]}">${sh.drape?`<div class="drape" style="background-image:${drapeSvg(sh.drapeColor)}"></div>`:''}${rows.map((r,i)=>
@@ -1181,6 +1221,7 @@ function renderEditUI(){
     if(b){hint=esc(b.title);const f=b.face||'spine';
       p=`<div class="pgrid">${[['cover','Cover out'],['spine','Spine out'],['edge','Edge out'],['flat','Lying flat']].map(([k,l])=>chip('face',k,l,f===k)).join('')}</div>
          <div class="pgrid" style="margin-top:8px">${chip('mv',-1,'◀ Move')}${chip('mv',1,'Move ▶')}${chip('flip','','Upside down',b.flip)}${chip('mirror','','Mirror',b.mirror)}</div>
+         <div class="prow" style="margin-top:10px"><span>Spine colour</span></div>${colourPicker(b)}
          <div class="pgrid" style="margin-top:8px">${chip('spinephoto','',b.spineImg?'Change spine photo':'Photo of real spine')}${b.spineImg?chip('nospine','','Remove photo'):''}</div>`}
     else hint='Drag a book or object to any ledge · tap a book to edit it';
   }else if(tool==='arrange'){
@@ -1206,7 +1247,7 @@ function renderEditUI(){
     const row=(label,key,opts)=>`<div class="prow"><span>${label}</span>${opts.map(([v,l])=>chip('set',key+'='+v,l,String(sh[key])===String(v))).join('')}</div>`;
     p=`<div class="prow"><span>Ledges</span>${chip('rows',-1,'−')}<b>${sh.rows}</b>${chip('rows',1,'+')}${chip('lights','','String lights',sh.lights)}${chip('drape','','Curtain',sh.drape)}</div>`+
       row('Books show','bookFace',[['spines','Spines'],['covers','Covers']])+
-      row('Spines','spineStyle',[['art','Cover art'],['colour','Colours']])+
+      row('Spines','spineStyle',[['plain','Book colour'],['art','Cover art'],['colour','Decorated']])+
       row('Ledge height','rowH',[[152,'Short'],[176,'Normal'],[210,'Tall'],[250,'Extra tall']])+
       row('Lights','lightColor',Object.keys(LIGHTC).map(k=>[k,`<i class="lsw" style="background:${LIGHTC[k][0]};color:${LIGHTC[k][0]}"></i>${k[0].toUpperCase()+k.slice(1)}`]))+
       row('Light type','lightStyle',[['dots','Dots'],['fairy','Fairy lights'],['bulbs','Bulbs'],['strip','Glow strip']])+
@@ -1217,6 +1258,7 @@ function renderEditUI(){
   }
   ui.innerHTML=`<div class="hint serif">${hint}</div>${p?`<div class="epanel">${p}</div>`:''}<div class="etools">${Object.keys(TOOL_ICONS).map(k=>`<button class="${tool===k?'on':''}" data-a="tool" data-v="${k}">${ic(TOOL_ICONS[k])}</button>`).join('')}</div>`;
   ui.querySelectorAll('[data-a]').forEach(el=>el.onclick=e=>{e.stopPropagation();act(el.dataset.a,el.dataset.v)});
+  if(b&&tool==='move')bindColourPicker(ui,b,()=>vLibrary());
 }
 async function act(a,v){
   const sh=S.shelf,b=book(selBook);
@@ -1684,7 +1726,7 @@ window.addEventListener('appinstalled',()=>{installEvt=null;toast('Installed')})
 // the visible page height (not the keyboard-shrunk one), so the tab bar sits on the real bottom edge
 (()=>{const fit=()=>{document.documentElement.style.setProperty('--app-h',innerHeight+'px');if(scrollY)scrollTo(0,0)};
   fit();addEventListener('resize',fit);addEventListener('orientationchange',()=>setTimeout(fit,300))})();
-const APP_VERSION='18 Nov 2026 · 10';   // shown in Profile, so you can tell which version a phone has
+const APP_VERSION='18 Nov 2026 · 11';   // shown in Profile, so you can tell which version a phone has
 if('serviceWorker' in navigator&&isSecureContext&&!VIEW){
   const hadController=!!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('sw.js').then(r=>r.update()).catch(()=>{});
@@ -1770,6 +1812,12 @@ async function paintBookFace(ctx,b,r,flat){
   const gloss=()=>{const g=flat?vGrad(ctx,r.y,r.h,[[0,'rgba(255,255,255,.13)'],[.4,'rgba(0,0,0,0)'],[1,'rgba(0,0,0,.5)']]):ctx.createLinearGradient(r.x,0,r.x+r.w,0);
     if(!flat)[[0,'rgba(0,0,0,.5)'],[.28,'rgba(0,0,0,0)'],[.5,'rgba(255,255,255,.13)'],[.72,'rgba(0,0,0,0)'],[1,'rgba(0,0,0,.56)']].forEach(([o,c])=>g.addColorStop(o,c));
     ctx.fillStyle=g;ctx.fillRect(r.x,r.y,r.w,r.h)};
+  if(isPlain(b)){const c=spineCols(b);ctx.fillStyle=`rgb(${c.bg})`;ctx.fillRect(r.x,r.y,r.w,r.h);gloss();
+    ctx.fillStyle=`rgb(${c.fg})`;ctx.textBaseline='middle';const au=(b.author||'').split(',')[0].trim().toUpperCase(),ti=b.title.toUpperCase();
+    if(flat){ctx.font='600 9px Arial,sans-serif';ctx.textAlign='left';ctx.fillText(ti.slice(0,18),r.x+6,r.y+r.h/2,r.w*.62);ctx.textAlign='right';ctx.font='500 7px Arial,sans-serif';ctx.fillText(lastName(b).toUpperCase().slice(0,10),r.x+r.w-6,r.y+r.h/2,r.w*.3)}
+    else{ctx.save();ctx.translate(r.x+r.w/2,r.y);ctx.rotate(Math.PI/2);ctx.textAlign='left';ctx.font='600 10.5px Arial,sans-serif';ctx.fillText(ti,9,0,r.h*.62);
+      ctx.textAlign='right';ctx.font='500 8px Arial,sans-serif';ctx.fillText(au,r.h-8,0,r.h*.3);ctx.restore()}
+    return}
   if(b.spineImg&&!flat){const im=await loadImg(b.spineImg);if(im){ctx.drawImage(im,r.x,r.y,r.w,r.h);gloss();return}}
   if(b.cover&&(S.shelf.spineStyle||'art')==='art'){
     const im=await loadImg(b.cover);
